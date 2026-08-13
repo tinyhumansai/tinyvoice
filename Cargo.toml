@@ -1,0 +1,84 @@
+[package]
+name = "rust-template"
+version = "0.1.5"
+edition = "2024"
+rust-version = "1.88"
+license = "GPL-3.0-only"
+description = "A production-ready template for installable TinyBus modules."
+repository = "https://github.com/tinyhumansai/rust-template"
+documentation = "https://docs.rs/rust-template"
+readme = "README.md"
+keywords = ["tinybus", "module", "plugin", "template"]
+categories = ["development-tools"]
+publish = false
+# Keep the published package to what a consumer actually needs.
+exclude = [
+    ".github/",
+    ".gitmodules",
+    "docs/",
+    "vendor/",
+    "worktrees/",
+    ".env.example",
+    "deny.toml",
+]
+
+[lib]
+# Keep the ordinary Rust library for tests and downstream reuse while also
+# producing the native module artifact that TinyBus loads at runtime.
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+# TinyBus defines the message types, interface macro, and frozen module ABI used
+# by the generated integration. Socket and CLI features are unnecessary here.
+tinybus = { path = "vendor/tinybus/crates/tinybus", version = "0.1.0", default-features = false, features = ["macros", "modules"] }
+# The module-side SDK owns the isolated runtime and exports the ABI entrypoints
+# required by TinyBus's dynamic loader.
+tinybus-module = { path = "vendor/tinybus/crates/tinybus-module", version = "0.1.0" }
+# Derive macros for the crate-wide error type in `src/error/mod.rs`. Every
+# dependency entry should carry a comment like this one saying why it is here.
+thiserror = "2"
+
+[dev-dependencies]
+# Module integration tests exercise the real asynchronous in-memory TinyBus.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+# The GitHub release verifier passes an explicit empty module configuration.
+serde_json = "1"
+
+[features]
+default = []
+
+# Lints apply to the whole crate and to every target. CI runs clippy with
+# `-D warnings`, so anything set to "warn" here fails the build in CI.
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Library code must not panic on its own; tests and examples may.
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+# Public fallible/panicking APIs must document their failure modes.
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+# Documentation hygiene.
+doc_markdown = "warn"
+# `#[must_use]` on pure public functions.
+must_use_candidate = "warn"
+
+[lints.rustdoc]
+broken_intra_doc_links = "warn"
+private_intra_doc_links = "warn"
+
+[profile.release]
+# Cross-crate optimization and smaller, faster binaries for release builds.
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
