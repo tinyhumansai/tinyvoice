@@ -353,7 +353,7 @@ jobs:
 
       - name: Upload Unix package
         if: ${{ runner.os != 'Windows' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ needs.prepare.outputs.crate_name }}-${{ matrix.id }}
           path: ${{ steps.unix_package.outputs.archive }}
@@ -361,7 +361,7 @@ jobs:
 
       - name: Upload Windows package
         if: ${{ runner.os == 'Windows' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ needs.prepare.outputs.crate_name }}-${{ matrix.id }}
           path: ${{ steps.windows_package.outputs.archive }}
@@ -475,7 +475,7 @@ jobs:
           echo "archive=dist/${package_name}.tar.gz" >> "$GITHUB_OUTPUT"
 
       - name: Upload distribution package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ needs.prepare.outputs.crate_name }}-${{ matrix.id }}
           path: ${{ steps.package.outputs.archive }}
@@ -499,7 +499,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: '*'
           path: release-assets
