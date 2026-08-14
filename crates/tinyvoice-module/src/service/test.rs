@@ -77,6 +77,7 @@ fn declared_methods_match_the_dispatch_table() {
         methods,
         [
             "EncodeWav",
+            "EncodeWavPcm16",
             "ExtractCommand",
             "FrameEnergies",
             "IsHallucinated",
@@ -640,5 +641,39 @@ async fn a_zero_frame_length_is_refused() -> tinybus::Result<()> {
         ));
     };
     assert!(error.to_string().contains("frame_len"), "got: {error}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn pcm16_encoding_is_exact() -> tinybus::Result<()> {
+    // The reason this method exists: a caller holding i16 must get its samples
+    // back byte-for-byte, not widened to f32 and narrowed again.
+    let proxy = connect().await?;
+    let pcm: Vec<i16> = vec![0, 1, -1, i16::MAX, i16::MIN + 1];
+    let bytes: Vec<u8> = pcm.iter().flat_map(|s| s.to_le_bytes()).collect();
+
+    let encoded: String = proxy
+        .call("EncodeWavPcm16", (BASE64.encode(&bytes), 16_000u32, 1u16))
+        .await?;
+    let wav = BASE64.decode(&encoded).expect("valid base64");
+
+    assert_eq!(&wav[0..4], b"RIFF");
+    assert_eq!(wav.len(), 44 + pcm.len() * 2);
+    assert_eq!(&wav[44..], &bytes[..], "samples must survive unchanged");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_truncated_pcm16_buffer_is_refused() -> tinybus::Result<()> {
+    let proxy = connect().await?;
+    let result = proxy
+        .call::<String>("EncodeWavPcm16", (BASE64.encode([0u8; 3]), 16_000u32, 1u16))
+        .await;
+    let Err(error) = result else {
+        return Err(tinybus::Error::failed(
+            "an odd byte count unexpectedly succeeded",
+        ));
+    };
+    assert!(error.to_string().contains("i16 samples"), "got: {error}");
     Ok(())
 }

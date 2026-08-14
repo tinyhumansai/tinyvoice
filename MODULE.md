@@ -22,7 +22,8 @@ The module claims `ai.tinyhumans.tinyvoice.Voice`, serves the object at
 | `VadClose` | `session` | — |
 | `PrepareFrames` | `samples`, `source_rate`, `channels` | base64 `f32` mono @ 16 kHz |
 | `FrameEnergies` | `samples`, `frame_len` | per-frame RMS |
-| `EncodeWav` | `samples`, `sample_rate` | base64 WAV |
+| `EncodeWav` | `samples` (`f32` mono), `sample_rate` | base64 WAV |
+| `EncodeWavPcm16` | `samples` (`i16`), `sample_rate`, `channels` | base64 WAV, samples unchanged |
 | `PrepareCapture` | `samples`, `source_rate`, `channels`, `gate_threshold` | base64 WAV |
 
 Notes on the contract:

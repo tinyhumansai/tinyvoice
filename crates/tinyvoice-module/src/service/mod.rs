@@ -393,6 +393,39 @@ impl VoiceService {
         Ok(samples.chunks(frame_len as usize).map(audio::rms).collect())
     }
 
+    /// Wrap base64 little-endian **`i16`** PCM samples in a WAV container.
+    ///
+    /// Separate from `EncodeWav` because a caller that already holds 16-bit PCM
+    /// — a client streaming headerless PCM16LE, say — would otherwise have to
+    /// widen to `f32` and let this widen back. That round trip is lossy by one
+    /// LSB (`/32768` out, `*32767` back), which is inaudible but is a silent
+    /// change to the caller's samples for no reason. This path is exact.
+    async fn encode_wav_pcm16(
+        &self,
+        samples: String,
+        sample_rate: u32,
+        channels: u16,
+    ) -> TinyBusResult<String> {
+        let bytes = decode_audio(&samples)?;
+        if !bytes.len().is_multiple_of(2) {
+            return Err(tinybus::Error::failed(format!(
+                "{} bytes is not a whole number of i16 samples",
+                bytes.len()
+            )));
+        }
+        let pcm: Vec<i16> = bytes
+            .chunks_exact(2)
+            .map(|c| i16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        let wav = audio::pcm16_to_wav(&pcm, sample_rate, channels).map_err(|e| failed(&e))?;
+        if wav.len() > MAX_AUDIO_BYTES {
+            return Err(tinybus::Error::failed(format!(
+                "encoded WAV exceeds the {MAX_AUDIO_BYTES} byte limit"
+            )));
+        }
+        Ok(BASE64.encode(wav))
+    }
+
     /// Wrap base64 little-endian `f32` mono samples in a 16-bit PCM WAV file.
     ///
     /// Returns the base64 WAV bytes.
@@ -491,6 +524,7 @@ tinybus_module::module_export! {
         "PrepareFrames",
         "FrameEnergies",
         "EncodeWav",
+        "EncodeWavPcm16",
         "PrepareCapture",
     ],
     signals = [],
