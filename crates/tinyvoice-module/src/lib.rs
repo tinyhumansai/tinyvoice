@@ -4,25 +4,41 @@
 //! the independently publishable `tinyvoice` crate. Its `cdylib` output is the
 //! target-specific binary distributed in GitHub releases.
 //!
-//! # What crosses the bus, and what should not
+//! # A call costs about 13 microseconds
 //!
-//! Every method here is **stateless and per-utterance**: a transcript in, a
-//! verdict out; a recording in, a container out. That is a deliberate boundary,
-//! not an incidental one.
+//! Measured in-process with `examples/bench_call.rs`, on the real loaded
+//! module: **13.3 µs per round trip**, against a 20 ms audio frame — 0.066% of
+//! the budget. Re-run it before trusting that number on other hardware:
 //!
-//! The one piece of `tinyvoice` that does *not* fit it is the VAD. A segmenter
-//! is driven once per audio frame — every 20 ms — and a bus round trip at that
-//! cadence is the wrong shape: the hop would cost more than the work. So
-//! `VoiceService::segment` takes a **batch** of frame energies and
-//! replays them through a fresh segmenter, which suits offline segmentation and
-//! a host that can tolerate batching latency at the end of an utterance.
+//! ```sh
+//! cargo run --release -p tinyvoice-module --example bench_call -- \
+//!   target/release/libtinyvoice_module.so
+//! ```
 //!
-//! **A host in a hard-realtime capture loop should link the `tinyvoice` rlib
-//! directly and hold its own [`tinyvoice::vad::VadSegmenter`].** The crate is
-//! host-agnostic and has no bus dependency precisely so that this is possible.
-//! Reaching for the module there would trade a function call for an IPC hop and
-//! add latency to the one path that is measured in milliseconds.
+//! This is worth stating plainly because an earlier revision of these docs
+//! asserted the opposite — that a per-frame call was too expensive and a
+//! realtime host should link the `tinyvoice` rlib instead. That claim was never
+//! measured, and it is wrong. A `TinyBus` module shares the host's address
+//! space; a call is a channel send and a JSON hop, not IPC.
+//!
+//! So a live capture loop **can** drive the VAD through this interface, and the
+//! session methods exist for exactly that.
+//!
+//! # What still belongs on the host's side
+//!
+//! One thing, and it is about thread discipline rather than cost: whatever runs
+//! inside the audio callback. `cpal` delivers on a realtime thread where the
+//! correct amount of work is as little as possible and blocking is a dropout.
+//! A host should forward raw interleaved samples from the callback to its own
+//! worker and call `PrepareFrames` from there — which is less
+//! work in the callback than downmixing in place, not more.
+//!
+//! # Session state
+//!
+//! The VAD is the only thing this module remembers between calls, because it is
+//! the only thing that is a state machine over successive frames. See
+//! [`VoiceService`] for why it is bounded and why ids are never reused.
 
 mod service;
 
-pub use service::{BUS_NAME, MAX_AUDIO_BYTES, OBJECT_PATH, VoiceService};
+pub use service::{BUS_NAME, MAX_AUDIO_BYTES, MAX_SESSIONS, OBJECT_PATH, VoiceService};

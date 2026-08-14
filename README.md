@@ -60,15 +60,20 @@ The module claims `ai.tinyhumans.tinyvoice.Voice` and serves
 `/ai/tinyhumans/tinyvoice/Voice`. See [`MODULE.md`](MODULE.md) for installation
 and the method list.
 
-**Every method is stateless and per-utterance** — a transcript in, a verdict
-out; a recording in, a container out. That boundary is deliberate. The one piece
-that does not fit it is the VAD: a segmenter is driven once per 20 ms frame, and
-a bus round trip at that cadence costs more than the work it carries. `Segment`
-therefore takes a *batch* of frame energies.
+**A call costs about 13 µs.** Measured in-process against the real loaded
+module (`examples/bench_call.rs`): 13.3 µs per round trip, or 0.066% of a 20 ms
+audio frame. A TinyBus module shares the host's address space — a call is a
+channel send and a JSON hop, not IPC.
 
-**A host in a hard-realtime capture loop should link the rlib and hold its own
-`VadSegmenter`.** The library has no bus dependency precisely so that this is
-possible.
+That means a live capture loop can drive the VAD through the bus, and the
+session methods (`VadOpen` / `VadPush` / `VadReset` / `VadClose`) exist for it.
+An earlier version of this README claimed otherwise, on an assumption rather
+than a measurement.
+
+The one thing that should stay on the host's side is whatever runs **inside the
+audio callback**: `cpal` delivers on a realtime thread where blocking is a
+dropout. Forward raw interleaved samples out of the callback and call
+`PrepareFrames` from a worker — less work in the callback, not more.
 
 ## Layout
 

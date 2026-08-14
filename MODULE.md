@@ -14,7 +14,14 @@ The module claims `ai.tinyhumans.tinyvoice.Voice`, serves the object at
 | `ExtractCommand` | `transcript`, `wake_word` | The command after the wake word, or `""` |
 | `WakeWordPresent` | `transcript`, `wake_word` | `bool` |
 | `IsHallucinated` | `text`, `mode` | `bool` |
-| `Segment` | `config`, `frame_ms`, `energies` | JSON array of frame-indexed VAD events |
+| `Segment` | `config`, `frame_ms`, `energies` | JSON array of frame-indexed VAD events (one-shot) |
+| `VadOpen` | `config` | session id |
+| `VadPush` | `session`, `frame_ms`, `energies` | JSON array of frame-indexed VAD events |
+| `VadIsSpeaking` | `session` | `bool` |
+| `VadReset` | `session` | — |
+| `VadClose` | `session` | — |
+| `PrepareFrames` | `samples`, `source_rate`, `channels` | base64 `f32` mono @ 16 kHz |
+| `FrameEnergies` | `samples`, `frame_len` | per-frame RMS |
 | `EncodeWav` | `samples`, `sample_rate` | base64 WAV |
 | `PrepareCapture` | `samples`, `source_rate`, `channels`, `gate_threshold` | base64 WAV |
 
@@ -33,10 +40,16 @@ Notes on the contract:
   is roughly eight minutes of 16 kHz mono, and the cap is checked *before*
   decoding so an oversized value returns an error rather than an allocation
   failure.
-- `Segment` starts a fresh segmenter per call and drops it afterwards, so submit
-  whole utterances — a batch that cuts one in half loses the open segment. A
-  host in a realtime capture loop should link the `tinyvoice` rlib and hold its
-  own `VadSegmenter` instead of calling this per frame.
+- `Segment` is the **one-shot** form: it starts a fresh segmenter per call and
+  drops it afterwards, so submit whole utterances — a batch that cuts one in
+  half loses the open segment. A live capture loop should use a session
+  (`VadOpen` … `VadPush` … `VadClose`) instead, which carries state across
+  calls. A call costs ~13 µs, so per-frame pushes are affordable.
+- Sessions are capped at 64 and ids are never reused. Over the cap, `VadOpen`
+  refuses rather than evicting — evicting would silently truncate an utterance
+  somebody is still recording. `VadClose` on an unknown id is deliberately
+  **not** an error, so teardown cannot itself fail.
+- `VadPush` frame indices are relative to *that call*, not a running total.
 
 ## Installing
 

@@ -13,7 +13,7 @@
     clippy::cast_precision_loss
 )]
 
-use super::{BUS_NAME, MAX_AUDIO_BYTES, OBJECT_PATH, VoiceService, setup};
+use super::{BUS_NAME, MAX_AUDIO_BYTES, MAX_SESSIONS, OBJECT_PATH, VoiceService, setup};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use tinybus::broker::Broker;
@@ -66,7 +66,7 @@ fn declared_methods_match_the_dispatch_table() {
     // `#[interface]` impl, so nothing but this test keeps the two in step. A
     // manifest that over-claims makes the host advertise a method that is not
     // there; one that under-claims hides a method that is.
-    let mut methods = VoiceService
+    let mut methods = VoiceService::default()
         .members()
         .into_iter()
         .map(|member| member.to_string())
@@ -78,10 +78,17 @@ fn declared_methods_match_the_dispatch_table() {
         [
             "EncodeWav",
             "ExtractCommand",
+            "FrameEnergies",
             "IsHallucinated",
             "PrepareCapture",
+            "PrepareFrames",
             "Route",
             "Segment",
+            "VadClose",
+            "VadIsSpeaking",
+            "VadOpen",
+            "VadPush",
+            "VadReset",
             "WakeWordPresent",
         ]
     );
@@ -386,5 +393,252 @@ async fn a_zero_sample_rate_is_refused() -> tinybus::Result<()> {
         ));
     };
     assert!(error.to_string().contains("sample rate"), "got: {error}");
+    Ok(())
+}
+
+// --- The VAD session lifecycle ---
+//
+// This is the only state the module holds, so it is where a leak, a stale
+// handle, or a lost utterance would come from.
+
+#[tokio::test]
+async fn a_session_segments_across_separate_calls() -> tinybus::Result<()> {
+    // The whole point of a session: an utterance that spans two pushes must
+    // survive the boundary. A stateless batch would lose the open segment.
+    let proxy = connect().await?;
+    let config = serde_json::json!({
+        "onset_threshold": 0.1,
+        "hangover_ms": 100,
+        "min_speech_ms": 60,
+        "max_utterance_ms": 5000,
+    })
+    .to_string();
+
+    let session: u64 = proxy.call("VadOpen", (config,)).await?;
+
+    // First push: speech starts and stays open.
+    let json: String = proxy
+        .call("VadPush", (session, 20u32, vec![0.5f32; 6]))
+        .await?;
+    let events: Vec<serde_json::Value> = serde_json::from_str(&json).expect("valid JSON");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["kind"], "speech_start");
+    assert!(proxy.call::<bool>("VadIsSpeaking", (session,)).await?);
+
+    // Second push: silence closes it, and the voiced total spans both calls.
+    let json: String = proxy
+        .call("VadPush", (session, 20u32, vec![0.0f32; 6]))
+        .await?;
+    let events: Vec<serde_json::Value> = serde_json::from_str(&json).expect("valid JSON");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["kind"], "speech_end");
+    assert_eq!(
+        events[0]["voiced_ms"], 120,
+        "voiced time must carry over from the previous call"
+    );
+    assert_eq!(events[0]["emit"], true);
+    assert!(!proxy.call::<bool>("VadIsSpeaking", (session,)).await?);
+
+    proxy.call::<()>("VadClose", (session,)).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn frame_indices_are_per_call_not_cumulative() -> tinybus::Result<()> {
+    let proxy = connect().await?;
+    let config = serde_json::to_string(&tinyvoice::vad::VadConfig::default()).expect("serialize");
+    let session: u64 = proxy.call("VadOpen", (config,)).await?;
+
+    // Ten silent frames, then a push whose second frame opens an utterance.
+    let _: String = proxy
+        .call("VadPush", (session, 20u32, vec![0.0f32; 10]))
+        .await?;
+    let json: String = proxy
+        .call("VadPush", (session, 20u32, vec![0.0f32, 0.5f32]))
+        .await?;
+    let events: Vec<serde_json::Value> = serde_json::from_str(&json).expect("valid JSON");
+
+    assert_eq!(
+        events[0]["frame"], 1,
+        "index is within this call, not a running total"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn reset_drops_a_partial_utterance_without_an_event() -> tinybus::Result<()> {
+    // The privacy hook. A screen lock must not produce a transcribable segment.
+    let proxy = connect().await?;
+    let config = serde_json::to_string(&tinyvoice::vad::VadConfig::default()).expect("serialize");
+    let session: u64 = proxy.call("VadOpen", (config,)).await?;
+
+    let _: String = proxy
+        .call("VadPush", (session, 20u32, vec![0.5f32; 30]))
+        .await?;
+    assert!(proxy.call::<bool>("VadIsSpeaking", (session,)).await?);
+
+    proxy.call::<()>("VadReset", (session,)).await?;
+    assert!(!proxy.call::<bool>("VadIsSpeaking", (session,)).await?);
+    Ok(())
+}
+
+#[tokio::test]
+async fn sessions_are_isolated_from_one_another() -> tinybus::Result<()> {
+    let proxy = connect().await?;
+    let config = serde_json::to_string(&tinyvoice::vad::VadConfig::default()).expect("serialize");
+    let a: u64 = proxy.call("VadOpen", (config.clone(),)).await?;
+    let b: u64 = proxy.call("VadOpen", (config,)).await?;
+    assert_ne!(a, b);
+
+    let _: String = proxy.call("VadPush", (a, 20u32, vec![0.5f32; 30])).await?;
+    assert!(proxy.call::<bool>("VadIsSpeaking", (a,)).await?);
+    assert!(
+        !proxy.call::<bool>("VadIsSpeaking", (b,)).await?,
+        "pushing into one session must not advance another"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_closed_session_is_refused_rather_than_silently_reopened() -> tinybus::Result<()> {
+    // Answering a stale handle by creating a fresh segmenter would look like it
+    // worked while silently restarting the utterance.
+    let proxy = connect().await?;
+    let config = serde_json::to_string(&tinyvoice::vad::VadConfig::default()).expect("serialize");
+    let session: u64 = proxy.call("VadOpen", (config,)).await?;
+    proxy.call::<()>("VadClose", (session,)).await?;
+
+    let result = proxy
+        .call::<String>("VadPush", (session, 20u32, vec![0.5f32]))
+        .await;
+    let Err(error) = result else {
+        return Err(tinybus::Error::failed(
+            "a closed session unexpectedly accepted a push",
+        ));
+    };
+    assert!(error.to_string().contains("is not open"), "got: {error}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn closing_twice_is_not_an_error() -> tinybus::Result<()> {
+    // Teardown must not itself be able to fail, or hosts start skipping it.
+    let proxy = connect().await?;
+    let config = serde_json::to_string(&tinyvoice::vad::VadConfig::default()).expect("serialize");
+    let session: u64 = proxy.call("VadOpen", (config,)).await?;
+    proxy.call::<()>("VadClose", (session,)).await?;
+    proxy.call::<()>("VadClose", (session,)).await?;
+    proxy.call::<()>("VadClose", (9_999_999,)).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn ids_are_never_reused() -> tinybus::Result<()> {
+    // A reused id lets a stale handle land on the next utterance's segmenter.
+    let proxy = connect().await?;
+    let config = serde_json::to_string(&tinyvoice::vad::VadConfig::default()).expect("serialize");
+
+    let first: u64 = proxy.call("VadOpen", (config.clone(),)).await?;
+    proxy.call::<()>("VadClose", (first,)).await?;
+    let second: u64 = proxy.call("VadOpen", (config,)).await?;
+
+    assert_ne!(first, second, "a freed id must not come back");
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_session_cap_refuses_new_sessions_rather_than_evicting_old_ones() -> tinybus::Result<()>
+{
+    // Evicting would silently truncate an utterance somebody is still recording.
+    let proxy = connect().await?;
+    let config = serde_json::to_string(&tinyvoice::vad::VadConfig::default()).expect("serialize");
+
+    let mut opened = Vec::new();
+    for _ in 0..MAX_SESSIONS {
+        opened.push(proxy.call::<u64>("VadOpen", (config.clone(),)).await?);
+    }
+    let result = proxy.call::<u64>("VadOpen", (config,)).await;
+    let Err(error) = result else {
+        return Err(tinybus::Error::failed("the session cap was not enforced"));
+    };
+    assert!(error.to_string().contains("session limit"), "got: {error}");
+
+    // The oldest session is still alive, which is the point.
+    let _: String = proxy
+        .call("VadPush", (opened[0], 20u32, vec![0.5f32]))
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_malformed_config_is_refused_at_open() -> tinybus::Result<()> {
+    let proxy = connect().await?;
+    let result = proxy
+        .call::<u64>("VadOpen", (r#"{"onset_threshold":0.1}"#,))
+        .await;
+    let Err(error) = result else {
+        return Err(tinybus::Error::failed(
+            "a partial config unexpectedly opened",
+        ));
+    };
+    assert!(
+        error.to_string().contains("invalid VAD config"),
+        "got: {error}"
+    );
+    Ok(())
+}
+
+// --- Frame preparation ---
+
+#[tokio::test]
+async fn prepare_frames_returns_samples_not_a_container() -> tinybus::Result<()> {
+    let proxy = connect().await?;
+    // 400 interleaved samples = 200 stereo frames at 32 kHz -> 100 at 16 kHz.
+    let stereo: Vec<f32> = (0..400).map(|i| ((i as f32) / 20.0).sin() * 0.5).collect();
+
+    let encoded: String = proxy
+        .call("PrepareFrames", (encode_samples(&stereo), 32_000u32, 2u16))
+        .await?;
+    let bytes = BASE64.decode(&encoded).expect("valid base64");
+
+    assert_eq!(bytes.len(), 100 * 4, "f32 mono samples, no WAV header");
+    assert_ne!(&bytes[0..4], b"RIFF");
+    Ok(())
+}
+
+#[tokio::test]
+async fn frame_energies_measures_a_short_trailing_frame_rather_than_dropping_it()
+-> tinybus::Result<()> {
+    // Dropping it loses the end of an utterance; padding with silence would
+    // dilute real speech into a below-threshold frame.
+    let proxy = connect().await?;
+    let samples = vec![0.5f32; 25];
+
+    let energies: Vec<f32> = proxy
+        .call("FrameEnergies", (encode_samples(&samples), 10u32))
+        .await?;
+
+    assert_eq!(energies.len(), 3, "two whole frames plus a 5-sample tail");
+    for e in &energies {
+        assert!(
+            (e - 0.5).abs() < 1e-5,
+            "constant signal keeps its magnitude: {e}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_zero_frame_length_is_refused() -> tinybus::Result<()> {
+    let proxy = connect().await?;
+    let result = proxy
+        .call::<Vec<f32>>("FrameEnergies", (encode_samples(&[0.1]), 0u32))
+        .await;
+    let Err(error) = result else {
+        return Err(tinybus::Error::failed(
+            "zero frame_len unexpectedly succeeded",
+        ));
+    };
+    assert!(error.to_string().contains("frame_len"), "got: {error}");
     Ok(())
 }
