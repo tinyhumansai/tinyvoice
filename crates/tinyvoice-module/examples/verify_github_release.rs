@@ -17,8 +17,11 @@ use tinybus::broker::Broker;
 use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryBus;
 
-const BUS_NAME: &str = "ai.tinyhumans.tinyvoice.Voice";
-const OBJECT_PATH: &str = "/ai.tinyhumans.tinyvoice.Voice";
+// Imported, never redeclared. A local copy of these is exactly how this
+// example once ended up dialling `/ai.tinyhumans.tinyvoice.Voice` — a bus name
+// where an object path belongs — while the module served the correct path and
+// every in-process test still passed.
+use tinyvoice_module::{BUS_NAME, OBJECT_PATH};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
