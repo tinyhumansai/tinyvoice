@@ -1,5 +1,8 @@
 # Build output
-/target/
+# Not anchored with a leading slash: `crates/tinyvoice-module` is a workspace
+# member today, but an unanchored rule also covers a nested workspace root if
+# one is ever added, whose `target/` a `/target/` rule would silently miss.
+target/
 **/*.rs.bk
 *.pdb
 

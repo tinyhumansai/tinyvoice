@@ -10,10 +10,10 @@ distributable without also shipping the TinyBus host runtime.
 - The library builds as both an `rlib` and a native `cdylib`.
 - The `cdylib` exports TinyBus module ABI v1, an embedded manifest, and the
   initialization entrypoint.
-- The example module provides `ai.tinyhumans.rust_template.Greeting.Greet` at
-  `/ai/tinyhumans/rust_template/Greeting`.
+- The example module provides `ai.tinyhumans.tinyvoice.Voice.Route` at
+  `/ai/tinyhumans/tinyvoice/Voice`.
 - Each release archive is named
-  `rust-template-<version>-<platform>.<extension>` and contains only this
+  `tinyvoice-<version>-<platform>.<extension>` and contains only this
   module, its SHA-256 `modules.toml`, license, and installation documentation.
 - Each GitHub release publishes a separate `checksum.toml` mapping every
   archive filename to its SHA-256 digest for TinyBus's release loader.

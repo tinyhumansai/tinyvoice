@@ -4,40 +4,35 @@ This file is the single source of truth for how humans and coding agents work
 in this repository. `CLAUDE.md` is a symlink to this file, so every agent reads
 the same instructions.
 
-When you generate a new project from this template, keep this file and adapt
-the project-specific parts (crate name, module map, feature flags, commands).
-Delete guidance that no longer applies rather than leaving it to rot.
+## What This Crate Is
 
-## Template Checklist
+Host-agnostic voice primitives extracted from OpenHuman. The governing rule,
+which decides where the *next* piece of code goes:
 
-Do this once, in a single commit, before writing feature code:
+> **A crate owns what is identical for every host; the host owns what depends
+> on its own runtime, config, or threat model.**
 
-- [ ] Set `name`, `description`, `repository`, `keywords`, and `categories` in
-      `Cargo.toml`.
-- [ ] Rename the crate references in `README.md`, `src/lib.rs`, `examples/`,
-      and `tests/` (search for `rust_template` and `rust-template`).
-- [ ] Replace the placeholder `greeting` module with the first real feature
-      area, keeping the `mod.rs` / `types.rs` / `test.rs` layout.
-- [ ] Confirm `license` and `LICENSE` match the project's intended license.
-- [ ] Update the security contact in `SECURITY.md`.
-- [ ] Replace `ROADMAP.md` with the real plan, or delete it.
-- [ ] Rename the TinyBus interface, object path, and declared methods in
-      `src/tinybus_module/` while keeping `vendor/tinybus` pinned.
-- [ ] Rewrite the "Project Structure" section below to describe this crate.
+`tinyvoice` is therefore synchronous, I/O-free and runtime-free. Before adding
+anything here, check it against that rule. Device capture, STT/TTS transport,
+hotkeys, credentials, and config shapes all fail it and belong to the host.
 
 ## Project Structure
 
-This is a Rust 2024 library crate rooted at `Cargo.toml`.
+A Rust 2024 workspace with two members: the publishable library at the root and
+the TinyBus adapter under `crates/`. The adapter exists so the vendored TinyBus
+dependency never reaches the library.
 
 ```text
 src/
 ├── lib.rs              # crate docs + the entire public re-export surface
 ├── error/mod.rs        # crate-wide `Error` and `Result<T>`
-├── tinybus_module/     # TinyBus interface, ABI exports, and integration tests
-└── <feature>/          # one directory per feature area
-    ├── mod.rs          # module docs, wiring, smallest useful public API
-    ├── types.rs        # substantial type definitions
-    └── test.rs         # module-local unit tests
+├── audio/              # WAV framing, RMS, resample, downmix, silence gate
+├── vad/                # the voice-activity state machine
+├── intent/             # wake-word gate (`wake.rs`) + command routing
+└── transcript/         # STT hallucination detection
+crates/tinyvoice-module/
+├── src/service/        # bus interface, setup, ABI v1 exports, bus tests
+└── examples/           # local and tagged-release module verification
 tests/                  # integration tests against the public API only
 examples/               # runnable, compiled-in-CI usage examples
 vendor/tinybus/         # pinned TinyBus host types and module SDK

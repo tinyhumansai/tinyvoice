@@ -1,0 +1,41 @@
+[package]
+name = "tinyvoice-module"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "GPL-3.0-only"
+description = "Trusted TinyBus module adapter for TinyVoice."
+repository = "https://github.com/tinyhumansai/tinyvoice"
+publish = false
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+# The pure voice library stays independently usable and bus-agnostic; this
+# crate exists so the vendored TinyBus dependency never reaches it.
+tinyvoice = { path = "../.." }
+# TinyBus provides the typed service interface and the dynamic module host ABI.
+tinybus = { version = "0.1.0", path = "../../vendor/tinybus/crates/tinybus", default-features = false, features = ["macros", "modules"] }
+# The module-side SDK owns its runtime and exports the stable C entrypoints.
+tinybus-module = { version = "0.1.0", path = "../../vendor/tinybus/crates/tinybus-module" }
+# The module's methods are `async fn` on a served object, so it needs a runtime
+# even though every operation underneath is synchronous.
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# Bus frames are JSON, where a raw byte array costs ~3.5 bytes per byte.
+# Base64 is 1.34x, which is what keeps an audio payload inside a frame.
+base64 = "0.22"
+# Structured arguments and results (a VAD config in, an event list out) cross
+# the bus as JSON rather than as long positional tuples.
+serde_json = "1"
+# The indexed VAD event is this crate's own wire shape, so it derives its serde
+# surface here rather than borrowing one from the library.
+serde = { version = "1", features = ["derive"] }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# The loader and E2E tests speak the same JSON/base64 surface a host does.
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

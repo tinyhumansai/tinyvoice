@@ -9,8 +9,8 @@ use tinybus::broker::Broker;
 use tinybus::module::ModuleHost;
 use tinybus::transport::memory::MemoryBus;
 
-const INTERFACE: &str = "ai.tinyhumans.rust_template.Greeting";
-const OBJECT_PATH: &str = "/ai/tinyhumans/rust_template/Greeting";
+const BUS_NAME: &str = "ai.tinyhumans.tinyvoice.Voice";
+const OBJECT_PATH: &str = "/ai.tinyhumans.tinyvoice.Voice";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let names = client.list_names().await?;
-            if names.iter().any(|name| name.as_str() == INTERFACE) {
+            if names.iter().any(|name| name.as_str() == BUS_NAME) {
                 return tinybus::Result::Ok(());
             }
             tokio::task::yield_now().await;
@@ -42,13 +42,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await??;
 
-    let proxy = client.proxy(INTERFACE, OBJECT_PATH, INTERFACE)?;
-    let greeting: String = proxy.call("Greet", ("TinyBus",)).await?;
-    if greeting != "Hello, TinyBus!" {
-        return Err(io::Error::other(format!(
-            "module returned an unexpected greeting: {greeting}"
-        ))
-        .into());
+    let proxy = client.proxy(BUS_NAME, OBJECT_PATH, BUS_NAME)?;
+    // A round trip that exercises real logic rather than an echo: the wake
+    // word must be matched fuzzily and stripped, and the remainder classified.
+    let intent: String = proxy.call("Route", ("please pause the music",)).await?;
+    if !intent.contains("\"pause\"") {
+        return Err(
+            io::Error::other(format!("module returned an unexpected intent: {intent}")).into(),
+        );
     }
 
     println!(

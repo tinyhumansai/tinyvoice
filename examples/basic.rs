@@ -1,22 +1,28 @@
-//! Minimal end-to-end usage of the crate.
-//!
-//! Examples are compiled and linted in CI, so they cannot drift from the API.
-//! Run it with:
-//!
-//! ```sh
-//! cargo run --example basic
-//! ```
+//! Ordinary library use: gate an utterance, route it, and screen the result.
 
-use rust_template::{Result, greet};
+use tinyvoice::{
+    intent::{VoiceIntent, extract_command, route},
+    transcript::{Mode, is_hallucinated},
+};
 
-fn main() -> Result<()> {
-    println!("{}", greet("Rust")?);
+fn main() {
+    // An always-on microphone hears everything in the room, so the wake word
+    // is what separates an instruction from a passing conversation.
+    let heard = "um, hey tiny, play Numb by Linkin Park";
+    let Some(command) = extract_command(heard, "Hey Tiny") else {
+        println!("not addressed to the agent");
+        return;
+    };
 
-    // Failure modes are part of the public contract; show them too.
-    match greet("   ") {
-        Ok(greeting) => println!("{greeting}"),
-        Err(error) => println!("expected failure: {error}"),
+    // A model fed near-silence returns stock phrases rather than nothing.
+    if is_hallucinated(&command, Mode::Conversation) {
+        println!("discarded a hallucinated transcript");
+        return;
     }
 
-    Ok(())
+    match route(&command) {
+        VoiceIntent::Play { query } => println!("play: {query}"),
+        VoiceIntent::Unknown => println!("no fast path; hand {command:?} to the agent"),
+        other => println!("fast path: {}", other.kind()),
+    }
 }

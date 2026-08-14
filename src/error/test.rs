@@ -1,17 +1,48 @@
-//! Unit tests for the crate-wide error type.
+//! The error type is part of the public surface: hosts match on it, so the
+//! variants and their messages are a contract.
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::float_cmp,
+    clippy::cast_precision_loss
+)]
 
-use super::*;
+use super::Error;
 
 #[test]
-fn renders_a_human_readable_message() {
-    assert_eq!(Error::EmptyName.to_string(), "name must not be empty");
+fn messages_say_what_was_wrong() {
+    assert_eq!(
+        Error::ZeroSampleRate.to_string(),
+        "sample rate must be greater than zero"
+    );
+    assert_eq!(
+        Error::ZeroChannels.to_string(),
+        "channel count must be greater than zero"
+    );
+    assert_eq!(
+        Error::RaggedFrames {
+            samples: 3,
+            channels: 2
+        }
+        .to_string(),
+        "3 samples is not a whole number of 2-channel frames"
+    );
 }
 
 #[test]
-fn is_a_standard_error() {
-    fn assert_error<E: std::error::Error>(_: &E) {}
-
-    assert_error(&Error::EmptyName);
+fn errors_are_comparable_so_tests_and_hosts_can_match_on_them() {
+    assert_eq!(Error::ZeroSampleRate, Error::ZeroSampleRate);
+    assert_ne!(Error::ZeroSampleRate, Error::ZeroChannels);
+    assert_ne!(
+        Error::RaggedFrames {
+            samples: 3,
+            channels: 2
+        },
+        Error::RaggedFrames {
+            samples: 5,
+            channels: 2
+        }
+    );
 }

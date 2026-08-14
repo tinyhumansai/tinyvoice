@@ -1,16 +1,15 @@
 [package]
-name = "rust-template"
-version = "0.1.5"
+name = "tinyvoice"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-only"
-description = "A production-ready template for installable TinyBus modules."
-repository = "https://github.com/tinyhumansai/rust-template"
-documentation = "https://docs.rs/rust-template"
+description = "Host-agnostic voice primitives: WAV framing, silence gating, voice-activity segmentation, command intent routing, and STT hallucination detection."
+repository = "https://github.com/tinyhumansai/tinyvoice"
+documentation = "https://docs.rs/tinyvoice"
 readme = "README.md"
-keywords = ["tinybus", "module", "plugin", "template"]
-categories = ["development-tools"]
-publish = false
+keywords = ["voice", "vad", "speech", "audio", "agent"]
+categories = ["multimedia::audio"]
 # Keep the published package to what a consumer actually needs.
 exclude = [
     ".github/",
@@ -22,26 +21,23 @@ exclude = [
     "deny.toml",
 ]
 
-[lib]
-# Keep the ordinary Rust library for tests and downstream reuse while also
-# producing the native module artifact that TinyBus loads at runtime.
-crate-type = ["rlib", "cdylib"]
+[workspace]
+members = ["crates/tinyvoice-module"]
+default-members = [".", "crates/tinyvoice-module"]
+exclude = ["vendor/tinybus"]
+resolver = "3"
 
 [dependencies]
-# TinyBus defines the message types, interface macro, and frozen module ABI used
-# by the generated integration. Socket and CLI features are unnecessary here.
-tinybus = { path = "vendor/tinybus/crates/tinybus", version = "0.1.0", default-features = false, features = ["macros", "modules"] }
-# The module-side SDK owns the isolated runtime and exports the ABI entrypoints
-# required by TinyBus's dynamic loader.
-tinybus-module = { path = "vendor/tinybus/crates/tinybus-module", version = "0.1.0" }
-# Derive macros for the crate-wide error type in `src/error/mod.rs`. Every
-# dependency entry should carry a comment like this one saying why it is here.
+# Derive macros for the crate-wide error type in `src/error/mod.rs`.
 thiserror = "2"
+# The VAD tuning, intent, and transcript types cross a bus frame and a host's
+# JSON config, so they derive their serde surface here rather than forcing
+# every host to re-declare it.
+serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
-# Module integration tests exercise the real asynchronous in-memory TinyBus.
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
-# The GitHub release verifier passes an explicit empty module configuration.
+# The intent and transcript types are a JSON wire contract; the tests assert
+# they round-trip and that unknown keys are rejected.
 serde_json = "1"
 
 [features]
@@ -49,14 +45,14 @@ default = []
 
 # Lints apply to the whole crate and to every target. CI runs clippy with
 # `-D warnings`, so anything set to "warn" here fails the build in CI.
-[lints.rust]
+[workspace.lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
 missing_debug_implementations = "warn"
 unreachable_pub = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }
 
-[lints.clippy]
+[workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 # Library code must not panic on its own; tests and examples may.
@@ -73,9 +69,12 @@ doc_markdown = "warn"
 # `#[must_use]` on pure public functions.
 must_use_candidate = "warn"
 
-[lints.rustdoc]
+[workspace.lints.rustdoc]
 broken_intra_doc_links = "warn"
 private_intra_doc_links = "warn"
+
+[lints]
+workspace = true
 
 [profile.release]
 # Cross-crate optimization and smaller, faster binaries for release builds.
