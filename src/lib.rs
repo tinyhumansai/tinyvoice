@@ -1,38 +1,57 @@
-//! A production-ready starting point for an installable `TinyBus` module.
+//! Host-agnostic voice primitives.
 //!
-//! This crate is a template. It ships the layout, lint configuration, error
-//! handling, testing, and documentation conventions described in `AGENTS.md`.
-//! The compiled `cdylib` exports `TinyBus` module ABI v1 and serves the example
-//! [`greet`] behavior over the bus.
+//! This crate owns the parts of a voice pipeline that are the same for every
+//! host: turning captured samples into a container an STT endpoint accepts,
+//! deciding where one utterance ends and the next begins, classifying a
+//! transcript into a fast-path command, and recognising the stock phrases a
+//! Whisper-family model emits when it is fed silence.
+//!
+//! # What is deliberately *not* here
+//!
+//! The split follows one rule, and it is the same rule `tinydocs` and
+//! `tinywallet` follow: **a crate owns what is identical for every host; the
+//! host owns what depends on its own runtime, config, or threat model.**
+//!
+//! So this crate is synchronous, I/O-free and runtime-free. It does not open a
+//! microphone, call an STT or TTS endpoint, own a hotkey, or know what a
+//! `Config` is. Those are the host's:
+//!
+//! | Stays with the host | Why |
+//! | --- | --- |
+//! | Device capture (`cpal`) | A stream is `!Send`, needs the host's thread and its permission model |
+//! | STT / TTS transport | Endpoint choice, credentials and retry are host policy |
+//! | Hotkeys, text injection | Platform input APIs, and a host's own accessibility posture |
+//! | Config and RPC shapes | The host's wire contract, not this crate's |
+//!
+//! The consequence worth knowing: [`vad::VadConfig`] has no constructor that
+//! reads a config file. A host builds one from whatever it persists. A crate
+//! that guessed at that shape would be wrong for every host that guessed
+//! differently.
 //!
 //! # Layout
 //!
-//! - `src/error/` holds the crate-wide [`Error`] enum and the [`Result`] alias
-//!   returned by every fallible public function.
-//! - Each feature area lives in its own module directory with a `mod.rs`
-//!   module root, an optional `types.rs`, and a `test.rs` holding its unit
-//!   tests.
-//! - Every public item is re-exported from here, so downstream users have a
-//!   single predictable surface.
-//! - `tinybus_module` adapts the public behavior to `TinyBus` and exports the
-//!   module descriptor, embedded manifest, and initialization entrypoint.
+//! - [`audio`] — WAV framing, RMS energy, resampling, downmixing, and the
+//!   silence gate that keeps dead air out of an STT upload.
+//! - [`vad`] — the voice-activity state machine that carves a continuous
+//!   stream into utterances.
+//! - [`intent`] — transcript to [`intent::VoiceIntent`], the fast-path
+//!   classifier that lets a host skip an LLM turn.
+//! - [`transcript`] — STT hallucination detection.
 //!
 //! # Example
 //!
 //! ```
-//! use rust_template::{greet, Error};
+//! use tinyvoice::{intent::{route, VoiceIntent}, transcript::{is_hallucinated, Mode}};
 //!
-//! assert_eq!(greet("Ferris")?, "Hello, Ferris!");
-//! assert_eq!(greet("   ").unwrap_err(), Error::EmptyName);
-//! # Ok::<(), rust_template::Error>(())
+//! assert_eq!(route("please pause the music"), VoiceIntent::Pause);
+//! assert!(is_hallucinated("Thank you for watching", Mode::Conversation));
 //! ```
-//!
-//! Replace the `greeting` module with the first real feature area, keep the
-//! conventions, and update this documentation to describe the new crate.
 
 mod error;
-mod greeting;
-mod tinybus_module;
+
+pub mod audio;
+pub mod intent;
+pub mod transcript;
+pub mod vad;
 
 pub use error::{Error, Result};
-pub use greeting::greet;
