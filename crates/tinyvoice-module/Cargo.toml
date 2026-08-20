@@ -24,7 +24,7 @@ tinybus-module = { version = "0.1.0", path = "../../vendor/tinybus/crates/tinybu
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # Bus frames are JSON, where a raw byte array costs ~3.5 bytes per byte.
 # Base64 is 1.34x, which is what keeps an audio payload inside a frame.
-base64 = "0.22"
+base64 = "0.23"
 # Structured arguments and results (a VAD config in, an event list out) cross
 # the bus as JSON rather than as long positional tuples.
 serde_json = "1"
