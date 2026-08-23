@@ -75,7 +75,7 @@ fn every_voice_intent_has_a_stable_kind() {
 /// so this is a case the contract actually permits — not a hypothetical.
 #[test]
 fn an_unrecognised_intent_tag_decodes_as_unknown() {
-    let decoded: crate::VoiceIntent =
-        serde_json::from_str(r#"{"intent":"summon_helicopter"}"#).expect("decodes");
-    assert_eq!(decoded, crate::VoiceIntent::Unknown);
+    let decoded: VoiceIntent =
+        serde_json::from_str(r#"{"intent":"summon_helicopter"}"#).unwrap();
+    assert_eq!(decoded, VoiceIntent::Unknown);
 }
