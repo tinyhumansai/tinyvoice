@@ -13,7 +13,7 @@ categories = ["multimedia::audio"]
 
 [dependencies]
 # The shared serialized vocabulary used by this crate and its TinyBus module.
-tinyvoice-bus = { path = "../tinyvoice-bus" }
+tinyvoice-bus = { version = "0.1.2", path = "../tinyvoice-bus" }
 # Derive macros for the crate-wide error type in `src/error/mod.rs`.
 thiserror = "2"
 

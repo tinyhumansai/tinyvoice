@@ -4,7 +4,7 @@ set -euo pipefail
 minimum="${1:-90}"
 report="${2:-coverage.json}"
 workspace_root="$(pwd -P)/"
-source_root="${workspace_root}src/"
+source_root="${workspace_root}crates/"
 
 cargo llvm-cov \
   --locked \
@@ -23,7 +23,7 @@ covered_files="$(jq --arg source_root "$source_root" '
 ' "$report")"
 
 if [[ "$covered_files" -eq 0 ]]; then
-  echo "coverage report contains no files with executable lines under src/" >&2
+  echo "coverage report contains no files with executable lines under crates/" >&2
   exit 1
 fi
 

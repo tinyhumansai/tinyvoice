@@ -15,10 +15,10 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 # The transport-free TinyBus wire contract: names, payload types, and version.
-tinyvoice-bus = { path = "../tinyvoice-bus" }
+tinyvoice-bus = { version = "0.1.2", path = "../tinyvoice-bus" }
 # The pure voice library stays independently usable and bus-agnostic; this
 # crate exists so the vendored TinyBus dependency never reaches it.
-tinyvoice = { path = "../tinyvoice" }
+tinyvoice = { version = "0.1.3", path = "../tinyvoice" }
 # TinyBus provides the typed service interface and the dynamic module host ABI.
 tinybus = { version = "0.1.0", path = "../../vendor/tinybus/crates/tinybus", default-features = false, features = ["macros", "modules"] }
 # The module-side SDK owns its runtime and exports the stable C entrypoints.

@@ -41,3 +41,30 @@ fn voice_values_keep_their_json_contract() {
     );
     assert_eq!(serde_json::from_str::<VadConfig>(r#"{"onset_threshold":0.1,"hangover_ms":100,"min_speech_ms":60,"max_utterance_ms":5000}"#).unwrap().hangover_ms, 100);
 }
+
+#[test]
+fn every_voice_intent_has_a_stable_kind() {
+    let intents = [
+        (
+            VoiceIntent::Play {
+                query: "jazz".into(),
+            },
+            "play",
+        ),
+        (VoiceIntent::Pause, "pause"),
+        (VoiceIntent::Resume, "resume"),
+        (VoiceIntent::Next, "next"),
+        (VoiceIntent::Previous, "previous"),
+        (VoiceIntent::OpenApp { app: "mail".into() }, "open_app"),
+        (VoiceIntent::SetVolume { percent: 42 }, "set_volume"),
+        (VoiceIntent::VolumeUp, "volume_up"),
+        (VoiceIntent::VolumeDown, "volume_down"),
+        (VoiceIntent::Mute, "mute"),
+        (VoiceIntent::Unmute, "unmute"),
+        (VoiceIntent::Unknown, "unknown"),
+    ];
+
+    for (intent, kind) in intents {
+        assert_eq!(intent.kind(), kind);
+    }
+}
