@@ -1,47 +1,11 @@
-[package]
-name = "tinyvoice"
-version = "0.1.3"
-edition = "2024"
-rust-version = "1.88"
-license = "GPL-3.0-only"
-description = "Host-agnostic voice primitives: WAV framing, silence gating, voice-activity segmentation, command intent routing, and STT hallucination detection."
-repository = "https://github.com/tinyhumansai/tinyvoice"
-documentation = "https://docs.rs/tinyvoice"
-readme = "README.md"
-keywords = ["voice", "vad", "speech", "audio", "agent"]
-categories = ["multimedia::audio"]
-# Keep the published package to what a consumer actually needs.
-exclude = [
-    ".github/",
-    ".gitmodules",
-    "docs/",
-    "vendor/",
-    "worktrees/",
-    ".env.example",
-    "deny.toml",
-]
-
 [workspace]
-members = ["crates/tinyvoice-module"]
-default-members = [".", "crates/tinyvoice-module"]
-exclude = ["vendor/tinybus"]
 resolver = "3"
-
-[dependencies]
-# Derive macros for the crate-wide error type in `src/error/mod.rs`.
-thiserror = "2"
-# The VAD tuning, intent, and transcript types cross a bus frame and a host's
-# JSON config, so they derive their serde surface here rather than forcing
-# every host to re-declare it.
-serde = { version = "1", features = ["derive"] }
-
-[dev-dependencies]
-# The intent and transcript types are a JSON wire contract; the tests assert
-# they round-trip and that unknown keys are rejected.
-serde_json = "1"
-
-[features]
-default = []
+# Every package lives under `crates/`. The loadable module is a nested
+# workspace because the vendored TinyBus manifests inherit their own workspace
+# metadata; build it through its own manifest.
+members = ["crates/tinyvoice", "crates/tinyvoice-bus"]
+default-members = ["crates/tinyvoice", "crates/tinyvoice-bus"]
+exclude = ["crates/tinyvoice-module", "vendor", "worktrees"]
 
 # Lints apply to the whole crate and to every target. CI runs clippy with
 # `-D warnings`, so anything set to "warn" here fails the build in CI.
@@ -72,9 +36,6 @@ must_use_candidate = "warn"
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "warn"
 private_intra_doc_links = "warn"
-
-[lints]
-workspace = true
 
 [profile.release]
 # Cross-crate optimization and smaller, faster binaries for release builds.

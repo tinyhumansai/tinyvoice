@@ -28,20 +28,9 @@
 #[cfg(test)]
 mod test;
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// How aggressively to filter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Mode {
-    /// Push-to-talk dictation. Aggressive: single-word noise artefacts and
-    /// short conversational phrases are treated as hallucination.
-    Dictation,
-    /// Chat voice input. Conservative: only blank markers, subtitle phrases and
-    /// repetition patterns are filtered, so "yes" or "okay" pass through.
-    Conversation,
-}
+pub use tinyvoice_bus::transcript::Mode;
 
 /// Blank-audio markers and subtitle-trained phrases, filtered in every mode.
 const ALWAYS: &[&str] = &[

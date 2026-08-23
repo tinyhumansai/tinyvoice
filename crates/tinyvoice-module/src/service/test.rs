@@ -13,12 +13,13 @@
     clippy::cast_precision_loss
 )]
 
-use super::{BUS_NAME, MAX_AUDIO_BYTES, MAX_SESSIONS, OBJECT_PATH, VoiceService, setup};
+use super::{MAX_AUDIO_BYTES, MAX_SESSIONS, VoiceService, setup};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use tinybus::broker::Broker;
 use tinybus::transport::memory::MemoryBus;
 use tinybus::{Connection, Interface};
+use tinyvoice_bus::{BUS_NAME, OBJECT_PATH, names};
 
 /// A live bus with the interface served on it.
 ///
@@ -75,23 +76,10 @@ fn declared_methods_match_the_dispatch_table() {
 
     assert_eq!(
         methods,
-        [
-            "EncodeWav",
-            "EncodeWavPcm16",
-            "ExtractCommand",
-            "FrameEnergies",
-            "IsHallucinated",
-            "PrepareCapture",
-            "PrepareFrames",
-            "Route",
-            "Segment",
-            "VadClose",
-            "VadIsSpeaking",
-            "VadOpen",
-            "VadPush",
-            "VadReset",
-            "WakeWordPresent",
-        ]
+        names::METHODS
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
     );
 }
 

@@ -8,8 +8,8 @@
 //! Run against a built module:
 //!
 //! ```sh
-//! cargo run --release -p tinyvoice-module --example bench_call -- \
-//!   target/release/libtinyvoice_module.so
+//! cargo run --manifest-path crates/tinyvoice-module/Cargo.toml --release --example bench_call -- \
+//!   crates/tinyvoice-module/target/release/libtinyvoice_module.so
 //! ```
 
 // FRAMES is a small literal; the cast is exact.

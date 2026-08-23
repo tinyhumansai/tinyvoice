@@ -6,17 +6,12 @@ mod test;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use tinybus::{Connection, Result as TinyBusResult};
+use tinyvoice_bus::{IndexedVadEvent, names};
 
 use tinyvoice::audio::{self, SilenceGateConfig};
 use tinyvoice::intent;
 use tinyvoice::transcript::{self, Mode};
-use tinyvoice::vad::{VadConfig, VadEvent, VadSegmenter};
-
-/// Well-known bus name this module claims.
-pub const BUS_NAME: &str = "ai.tinyhumans.tinyvoice.Voice";
-
-/// Object path the interface is served at.
-pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyvoice/Voice";
+use tinyvoice::vad::{VadConfig, VadSegmenter};
 
 /// Largest audio payload accepted or produced in a single call.
 ///
@@ -106,8 +101,10 @@ fn f32_samples(bytes: &[u8]) -> TinyBusResult<Vec<f32>> {
         )));
     }
     Ok(bytes
-        .chunks_exact(4)
-        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|&sample| f32::from_le_bytes(sample))
         .collect())
 }
 
@@ -167,7 +164,9 @@ fn to_json<T: serde::Serialize>(value: &T) -> TinyBusResult<String> {
 // `async fn` signatures because dispatch awaits them, so the methods are async
 // without awaiting anything. Making them genuinely async would mean inventing
 // work for them to wait on.
-#[allow(clippy::unused_async)]
+// `#[tinybus::interface]` requires `async fn`; all work under this boundary is
+// synchronous and changing these signatures would break the generated adapter.
+#[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
 #[tinybus::interface(name = "ai.tinyhumans.tinyvoice.Voice")]
 impl VoiceService {
     /// Classify a command transcript, returning a JSON `VoiceIntent`.
@@ -245,13 +244,13 @@ impl VoiceService {
         }
 
         let mut segmenter = VadSegmenter::new(config);
-        let events: Vec<IndexedEvent> = energies
+        let events: Vec<IndexedVadEvent> = energies
             .into_iter()
             .enumerate()
             .filter_map(|(frame, rms)| {
                 segmenter
                     .push_frame(rms, frame_ms)
-                    .map(|event| IndexedEvent { frame, event })
+                    .map(|event| IndexedVadEvent { frame, event })
             })
             .collect();
         to_json(&events)
@@ -307,7 +306,7 @@ impl VoiceService {
                 .filter_map(|(frame, rms)| {
                     segmenter
                         .push_frame(rms, frame_ms)
-                        .map(|event| IndexedEvent { frame, event })
+                        .map(|event| IndexedVadEvent { frame, event })
                 })
                 .collect::<Vec<_>>()
         };
@@ -414,8 +413,10 @@ impl VoiceService {
             )));
         }
         let pcm: Vec<i16> = bytes
-            .chunks_exact(2)
-            .map(|c| i16::from_le_bytes([c[0], c[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&sample| i16::from_le_bytes(sample))
             .collect();
         let wav = audio::pcm16_to_wav(&pcm, sample_rate, channels).map_err(|e| failed(&e))?;
         if wav.len() > MAX_AUDIO_BYTES {
@@ -483,26 +484,12 @@ impl VoiceService {
     }
 }
 
-/// A [`VadEvent`] paired with the frame that produced it.
-///
-/// The index is what makes a batch reply actionable: a host needs to know
-/// *where* an utterance ended in order to cut the audio there, and a bare event
-/// list would only say that it did.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct IndexedEvent {
-    /// Zero-based index into the submitted energies.
-    frame: usize,
-    /// What the segmenter reported at that frame.
-    #[serde(flatten)]
-    event: VadEvent,
-}
-
 /// Claim the bus name and serve the interface.
 async fn setup(connection: Connection) -> TinyBusResult<()> {
     connection
-        .serve_at(OBJECT_PATH.try_into()?, VoiceService::default())
+        .serve_at(names::OBJECT_PATH.try_into()?, VoiceService::default())
         .await?;
-    connection.request_name(BUS_NAME).await?;
+    connection.request_name(names::BUS_NAME).await?;
     Ok(())
 }
 

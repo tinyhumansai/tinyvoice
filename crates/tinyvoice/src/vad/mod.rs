@@ -10,60 +10,7 @@
 #[cfg(test)]
 mod test;
 
-use serde::{Deserialize, Serialize};
-
-/// Tuning for [`VadSegmenter`].
-///
-/// There is deliberately no `from_config`-style constructor. A host builds this
-/// from whatever it persists; a crate that guessed at that shape would be wrong
-/// for every host that guessed differently.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct VadConfig {
-    /// Peak-RMS energy above which a frame counts as speech.
-    pub onset_threshold: f32,
-    /// How long energy must stay below `onset_threshold` before the current
-    /// utterance is closed. Bridges natural mid-sentence pauses.
-    pub hangover_ms: u32,
-    /// Minimum voiced duration for a segment to be emitted; shorter blips
-    /// (a cough, a door) are dropped.
-    pub min_speech_ms: u32,
-    /// Hard ceiling on a single utterance, so a continuous noise source cannot
-    /// grow an unbounded recording.
-    pub max_utterance_ms: u32,
-}
-
-impl Default for VadConfig {
-    /// The tuning `OpenHuman`'s always-on listener shipped with.
-    fn default() -> Self {
-        Self {
-            onset_threshold: 0.01,
-            hangover_ms: 800,
-            min_speech_ms: 300,
-            max_utterance_ms: 30_000,
-        }
-    }
-}
-
-/// An event emitted as the stream is consumed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum VadEvent {
-    /// Energy crossed the onset threshold — an utterance has begun.
-    SpeechStart,
-    /// An utterance closed.
-    SpeechEnd {
-        /// Accumulated speech duration, excluding the trailing silence.
-        voiced_ms: u32,
-        /// False when `voiced_ms` fell below `min_speech_ms` — the host should
-        /// discard the audio rather than transcribe it.
-        emit: bool,
-        /// True when the close was forced by `max_utterance_ms` rather than by
-        /// a silence hangover. A host may want to keep the microphone hot
-        /// across a forced close, since the speaker probably has not stopped.
-        forced: bool,
-    },
-}
+pub use tinyvoice_bus::vad::{VadConfig, VadEvent};
 
 #[derive(Debug, Clone, Copy)]
 enum State {

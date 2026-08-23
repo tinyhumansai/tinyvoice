@@ -129,7 +129,7 @@ jobs:
           NEXT_VERSION: ${{ steps.version.outputs.next_version }}
         run: |
           set -euo pipefail
-          perl -0pi -e 's/(\[package\][\s\S]*?\nversion = ")[^"]+(")/$1$ENV{NEXT_VERSION}$2/' Cargo.toml
+          perl -0pi -e 's/(\[package\][\s\S]*?\nversion = ")[^"]+(")/$1$ENV{NEXT_VERSION}$2/' crates/tinyvoice/Cargo.toml
           perl -0pi -e 's/(\[package\][\s\S]*?\nversion = ")[^"]+(")/$1$ENV{NEXT_VERSION}$2/' crates/tinyvoice-module/Cargo.toml
           cargo update -p "$CRATE_NAME" --precise "$NEXT_VERSION"
 
@@ -140,7 +140,7 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock crates/tinyvoice-module/Cargo.toml
+          git add Cargo.lock crates/tinyvoice/Cargo.toml crates/tinyvoice-module/Cargo.toml
           git commit -m "Release ${RELEASE_TAG}"
           git tag -a "${RELEASE_TAG}" -m "Release ${RELEASE_TAG}"
 
@@ -236,7 +236,7 @@ jobs:
           [[ "$actual_target" == "$EXPECTED_TARGET" ]]
 
       - name: Build installable module
-        run: cargo build --locked --release --package tinyvoice-module
+        run: cargo build --manifest-path crates/tinyvoice-module/Cargo.toml --locked --release --package tinyvoice-module
 
       - name: Assemble Unix module package
         if: ${{ runner.os != 'Windows' }}
@@ -250,8 +250,8 @@ jobs:
 
           library_name="tinyvoice_module"
           case "$RUNNER_OS" in
-            Linux) module="target/release/lib${library_name}.so" ;;
-            macOS) module="target/release/lib${library_name}.dylib" ;;
+            Linux) module="crates/tinyvoice-module/target/release/lib${library_name}.so" ;;
+            macOS) module="crates/tinyvoice-module/target/release/lib${library_name}.dylib" ;;
             *) echo "unsupported Unix runner: ${RUNNER_OS}" >&2; exit 1 ;;
           esac
           package_name="tinyvoice-module-${VERSION}-${BUNDLE_ID}"
@@ -276,7 +276,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $libraryName = 'tinyvoice_module'
-          $module = "target/release/$libraryName.dll"
+          $module = "crates/tinyvoice-module/target/release/$libraryName.dll"
           $packageName = "tinyvoice-module-$env:VERSION-$env:BUNDLE_ID"
           $packageRoot = "dist/$packageName"
           New-Item -ItemType Directory -Force $packageRoot | Out-Null

@@ -11,8 +11,8 @@
 //! the budget. Re-run it before trusting that number on other hardware:
 //!
 //! ```sh
-//! cargo run --release -p tinyvoice-module --example bench_call -- \
-//!   target/release/libtinyvoice_module.so
+//! cargo run --manifest-path crates/tinyvoice-module/Cargo.toml --release --example bench_call -- \
+//!   crates/tinyvoice-module/target/release/libtinyvoice_module.so
 //! ```
 //!
 //! This is worth stating plainly because an earlier revision of these docs
@@ -41,4 +41,5 @@
 
 mod service;
 
-pub use service::{BUS_NAME, MAX_AUDIO_BYTES, MAX_SESSIONS, OBJECT_PATH, VoiceService};
+pub use service::{MAX_AUDIO_BYTES, MAX_SESSIONS, VoiceService};
+pub use tinyvoice_bus::{BUS_NAME, OBJECT_PATH};

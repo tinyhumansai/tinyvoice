@@ -1,3 +1,5 @@
+[workspace]
+
 [package]
 name = "tinyvoice-module"
 version = "0.1.3"
@@ -12,9 +14,11 @@ publish = false
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+# The transport-free TinyBus wire contract: names, payload types, and version.
+tinyvoice-bus = { version = "0.1.2", path = "../tinyvoice-bus" }
 # The pure voice library stays independently usable and bus-agnostic; this
 # crate exists so the vendored TinyBus dependency never reaches it.
-tinyvoice = { path = "../.." }
+tinyvoice = { version = "0.1.3", path = "../tinyvoice" }
 # TinyBus provides the typed service interface and the dynamic module host ABI.
 tinybus = { version = "0.1.0", path = "../../vendor/tinybus/crates/tinybus", default-features = false, features = ["macros", "modules"] }
 # The module-side SDK owns its runtime and exports the stable C entrypoints.
@@ -25,17 +29,33 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # Bus frames are JSON, where a raw byte array costs ~3.5 bytes per byte.
 # Base64 is 1.34x, which is what keeps an audio payload inside a frame.
 base64 = "0.22"
-# Structured arguments and results (a VAD config in, an event list out) cross
-# the bus as JSON rather than as long positional tuples.
-serde_json = "1"
-# The indexed VAD event is this crate's own wire shape, so it derives its serde
-# surface here rather than borrowing one from the library.
+# VAD configuration and event lists remain JSON values in the stable ABI.
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"
+doc_markdown = "warn"
+must_use_candidate = "warn"
+
+[lints.rustdoc]
+broken_intra_doc_links = "warn"
+private_intra_doc_links = "warn"
 
 [dev-dependencies]
-# The loader and E2E tests speak the same JSON/base64 surface a host does.
-serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

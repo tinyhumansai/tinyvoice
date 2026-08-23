@@ -55,3 +55,7 @@ pub mod transcript;
 pub mod vad;
 
 pub use error::{Error, Result};
+// The transport-free vocabulary is defined once in `tinyvoice-bus`. Re-export
+// it so the historical `tinyvoice::{vad, intent, transcript}` paths keep
+// resolving to the exact types a TinyBus host uses.
+pub use tinyvoice_bus;

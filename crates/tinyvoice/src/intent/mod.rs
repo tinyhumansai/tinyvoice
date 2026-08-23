@@ -21,73 +21,7 @@ mod wake;
 
 pub use wake::{extract_command, wake_word_present};
 
-use serde::{Deserialize, Serialize};
-
-/// A recognised fast-path voice command, or [`Unknown`](VoiceIntent::Unknown)
-/// when the transcript should go to the agent instead.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "intent", rename_all = "snake_case")]
-pub enum VoiceIntent {
-    /// "play &lt;song/artist&gt;" — a media search and play.
-    Play {
-        /// The cleaned search query.
-        query: String,
-    },
-    /// Pause playback.
-    Pause,
-    /// Resume playback.
-    Resume,
-    /// Skip to the next track.
-    Next,
-    /// Go back to the previous track.
-    Previous,
-    /// "open/launch/start &lt;app&gt;".
-    OpenApp {
-        /// The cleaned application name.
-        app: String,
-    },
-    /// "set volume to N" — absolute, `0..=100`.
-    SetVolume {
-        /// Target volume percentage.
-        percent: u8,
-    },
-    /// Raise the volume by the host's step.
-    VolumeUp,
-    /// Lower the volume by the host's step.
-    VolumeDown,
-    /// Mute audio output.
-    Mute,
-    /// Unmute audio output.
-    Unmute,
-    /// Not a confident fast command — defer to the agent.
-    Unknown,
-}
-
-impl VoiceIntent {
-    /// A stable, **non-PII** variant name, for logs and metrics.
-    ///
-    /// Never includes the transcript-derived `query` / `app` payloads. This
-    /// path is fed by an always-on microphone, so those fields can contain
-    /// anything that was said in the room; a log line naming the variant is
-    /// useful, and one naming the query is a recording.
-    #[must_use]
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::Play { .. } => "play",
-            Self::Pause => "pause",
-            Self::Resume => "resume",
-            Self::Next => "next",
-            Self::Previous => "previous",
-            Self::OpenApp { .. } => "open_app",
-            Self::SetVolume { .. } => "set_volume",
-            Self::VolumeUp => "volume_up",
-            Self::VolumeDown => "volume_down",
-            Self::Mute => "mute",
-            Self::Unmute => "unmute",
-            Self::Unknown => "unknown",
-        }
-    }
-}
+pub use tinyvoice_bus::intent::VoiceIntent;
 
 /// Normalise: lowercase, replace punctuation with spaces, collapse whitespace.
 fn norm(s: &str) -> String {
