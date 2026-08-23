@@ -1,0 +1,28 @@
+[package]
+name = "tinyvoice"
+version = "0.1.3"
+edition = "2024"
+rust-version = "1.88"
+license = "GPL-3.0-only"
+description = "Host-agnostic voice primitives: WAV framing, silence gating, voice-activity segmentation, command intent routing, and STT hallucination detection."
+repository = "https://github.com/tinyhumansai/tinyvoice"
+documentation = "https://docs.rs/tinyvoice"
+readme = "../../README.md"
+keywords = ["voice", "vad", "speech", "audio", "agent"]
+categories = ["multimedia::audio"]
+
+[dependencies]
+# The shared serialized vocabulary used by this crate and its TinyBus module.
+tinyvoice-bus = { path = "../tinyvoice-bus" }
+# Derive macros for the crate-wide error type in `src/error/mod.rs`.
+thiserror = "2"
+
+[dev-dependencies]
+# The intent and transcript types are a JSON wire contract; tests pin it.
+serde_json = "1"
+
+[features]
+default = []
+
+[lints]
+workspace = true

@@ -6,7 +6,8 @@ Ships two things from one repository:
 
 | Crate | Output | For |
 | --- | --- | --- |
-| `tinyvoice` (root) | `rlib` | A host that links the logic in-process |
+| `tinyvoice` (`crates/`) | `rlib` | A host that links the logic in-process |
+| `tinyvoice-bus` (`crates/`) | `rlib` | A host that only needs TinyBus names and value types |
 | `tinyvoice-module` (`crates/`) | `cdylib` | A host that loads it over the TinyBus module ABI |
 
 ## What belongs here, and what does not
@@ -52,7 +53,7 @@ if is_hallucinated(&command, Mode::Conversation) {
 assert_eq!(route(&command), VoiceIntent::Pause);
 ```
 
-Run it: `cargo run --example basic`.
+Run it: `cargo run -p tinyvoice --example basic`.
 
 ## Use it as a TinyBus module
 
@@ -78,13 +79,12 @@ dropout. Forward raw interleaved samples out of the callback and call
 ## Layout
 
 ```text
-src/
-├── lib.rs              # crate docs + the public re-export surface
-├── error/              # crate-wide `Error` and `Result<T>`
-├── audio/              # WAV framing, RMS, resample, downmix, silence gate
-├── vad/                # the voice-activity state machine
-├── intent/             # wake-word gate (`wake.rs`) + command routing
-└── transcript/         # STT hallucination detection
+crates/tinyvoice/
+├── src/                # pure voice primitives and public re-export surface
+├── tests/              # integration tests against the library API
+└── examples/           # runnable library usage
+crates/tinyvoice-bus/
+└── src/                # transport-free bus names and serialized vocabulary
 crates/tinyvoice-module/
 ├── src/service/        # bus interface, setup, ABI v1 exports
 └── examples/           # local and tagged-release module verification
@@ -99,6 +99,7 @@ After cloning: `git submodule update --init vendor/tinybus`.
 cargo fmt --all
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
+cargo test --manifest-path crates/tinyvoice-module/Cargo.toml --all-features
 ```
 
 CI additionally requires 90% line coverage in every source file and a clean

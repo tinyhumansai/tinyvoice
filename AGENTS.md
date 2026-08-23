@@ -18,23 +18,20 @@ hotkeys, credentials, and config shapes all fail it and belong to the host.
 
 ## Project Structure
 
-A Rust 2024 workspace with two members: the publishable library at the root and
-the TinyBus adapter under `crates/`. The adapter exists so the vendored TinyBus
-dependency never reaches the library.
+A Rust 2024 workspace with a virtual root. The publishable library and the
+transport-free TinyBus contract live under `crates/`; the dynamic module is its
+own workspace so vendored TinyBus metadata never reaches the library workspace.
 
 ```text
-src/
-├── lib.rs              # crate docs + the entire public re-export surface
-├── error/mod.rs        # crate-wide `Error` and `Result<T>`
-├── audio/              # WAV framing, RMS, resample, downmix, silence gate
-├── vad/                # the voice-activity state machine
-├── intent/             # wake-word gate (`wake.rs`) + command routing
-└── transcript/         # STT hallucination detection
+crates/tinyvoice/
+├── src/                # pure voice library and public re-export surface
+├── tests/              # integration tests against its public API
+└── examples/           # runnable library examples
+crates/tinyvoice-bus/
+└── src/                # TinyBus names and serialized shared value types
 crates/tinyvoice-module/
 ├── src/service/        # bus interface, setup, ABI v1 exports, bus tests
 └── examples/           # local and tagged-release module verification
-tests/                  # integration tests against the public API only
-examples/               # runnable, compiled-in-CI usage examples
 vendor/tinybus/         # pinned TinyBus host types and module SDK
 docs/
 ├── specs/              # behavior and architecture specifications
@@ -42,7 +39,7 @@ docs/
 └── adr/                # immutable architecture decision records
 ```
 
-Each feature area belongs in a focused module directory under `src/`. A module
+Each feature area belongs in a focused module directory under a crate's `src/`. A module
 root explains the module, wires its pieces together, and exposes the smallest
 useful API. Move substantial type definitions into `types.rs` and put
 module-local unit tests in a dedicated `test.rs`, wired from the bottom of the
@@ -58,7 +55,7 @@ let a general-purpose `utils.rs` or `helpers.rs` grow — those are a symptom of
 missing module. Prefer many small modules that each do one thing well over few
 broad ones.
 
-Keep public exports centralized in `src/lib.rs` so downstream users have one
+Keep public exports centralized in each crate's `src/lib.rs` so downstream users have one
 predictable surface. Put shared error variants in `src/error/mod.rs` and return
 the crate-wide `Result<T>` from fallible public APIs.
 
@@ -72,13 +69,14 @@ cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo build --all-targets --all-features
 cargo test --all-features
+cargo test --manifest-path crates/tinyvoice-module/Cargo.toml --all-features
 ```
 
 Supporting commands:
 
 - `cargo fmt --all` — format before committing.
 - `cargo test <filter>` — run a focused subset while iterating.
-- `cargo run --example basic` — run the bundled example.
+- `cargo run -p tinyvoice --example basic` — run the bundled example.
 - `cargo doc --no-deps --all-features` — build the rustdoc CI also builds with
   `RUSTDOCFLAGS="-D warnings"`.
 - `cargo test --doc` — run doctests alone when editing documentation examples.
@@ -235,7 +233,7 @@ release with installable native packages.
 
 Consequently:
 
-- Do not hand-edit the `version` field in `Cargo.toml`; the release workflow
+- Do not hand-edit the `version` field in `crates/tinyvoice/Cargo.toml`; the release workflow
   owns it.
 - Follow semantic versioning. Any change to the public surface that is not
   purely additive is a breaking change and needs a major bump (pre-1.0: a minor

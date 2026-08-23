@@ -1,0 +1,22 @@
+[package]
+name = "tinyvoice-bus"
+version = "0.1.2"
+edition = "2024"
+rust-version = "1.88"
+license = "GPL-3.0-only"
+description = "The TinyBus wire contract for TinyVoice: member names, payload types, and contract version."
+repository = "https://github.com/tinyhumansai/tinyvoice"
+publish = false
+
+# Deliberately transport-free: a host only needs this vocabulary to call the
+# dynamic module, not TinyBus itself, a runtime, or the implementation crate.
+[dependencies]
+# The wire payloads are encoded into TinyBus JSON frames.
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+# Contract tests pin the JSON representation hosts exchange with the module.
+serde_json = "1"
+
+[lints]
+workspace = true
