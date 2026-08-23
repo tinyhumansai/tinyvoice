@@ -38,6 +38,15 @@ pub enum VoiceIntent {
     /// Unmute audio output.
     Unmute,
     /// Defer an unrecognised command to the host.
+    ///
+    /// `#[serde(other)]` is the forward-compatibility rule, not a detail.
+    /// [`is_compatible`](crate::is_compatible) lets a host bind a module whose
+    /// minor version is *ahead* of its own, so a host can be handed an intent
+    /// this build has never heard of. Degrading that to `Unknown` sends the
+    /// utterance to the agent, which is what an unrecognised command is
+    /// supposed to do; without it the decode fails instead, and a
+    /// forward-compatible addition upstream becomes a broken call downstream.
+    #[serde(other)]
     Unknown,
 }
 
