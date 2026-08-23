@@ -108,7 +108,7 @@ dependencies = [
 
 [[package]]
 name = "tinyvoice"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "serde_json",
  "thiserror",
