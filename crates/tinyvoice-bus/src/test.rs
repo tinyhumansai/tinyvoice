@@ -68,3 +68,14 @@ fn every_voice_intent_has_a_stable_kind() {
         assert_eq!(intent.kind(), kind);
     }
 }
+
+/// A tag from a newer module decodes to `Unknown` rather than failing.
+///
+/// `is_compatible` admits a module whose minor version is ahead of the host's,
+/// so this is a case the contract actually permits — not a hypothetical.
+#[test]
+fn an_unrecognised_intent_tag_decodes_as_unknown() {
+    let decoded: crate::VoiceIntent =
+        serde_json::from_str(r#"{"intent":"summon_helicopter"}"#).expect("decodes");
+    assert_eq!(decoded, crate::VoiceIntent::Unknown);
+}
