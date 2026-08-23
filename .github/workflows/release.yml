@@ -144,8 +144,20 @@ jobs:
           git commit -m "Release ${RELEASE_TAG}"
           git tag -a "${RELEASE_TAG}" -m "Release ${RELEASE_TAG}"
 
-      - name: Package crate
-        run: cargo package --locked --package tinyvoice
+      # `cargo package --package tinyvoice` used to be here and cannot be: since
+      # the bus-contract split, `tinyvoice` depends on `tinyvoice-bus` by path,
+      # and packaging rewrites a path dependency to a registry version and then
+      # looks it up. `tinyvoice-bus` is `publish = false` and will never be in
+      # the index, so the step failed with `no matching package named
+      # `tinyvoice-bus` found` — and because `native-bundles` needs this job, it
+      # took every module artifact in the release with it.
+      #
+      # Nothing here is published to crates.io. Hosts take this repository as a
+      # git submodule for the wire contract and load the module artifact built
+      # below, so packaging the library was only ever a manifest check. The bus
+      # contract still gets one: it has no path dependencies.
+      - name: Package the bus contract
+        run: cargo package --locked --package tinyvoice-bus
 
       - name: Package TinyBus source and module SDK
         run: |
@@ -162,7 +174,7 @@ jobs:
         with:
           name: source-packages
           path: |
-            target/package/${{ steps.version.outputs.crate_name }}-${{ steps.version.outputs.next_version }}.crate
+            target/package/tinyvoice-bus-*.crate
             target/package/tinybus-source-*.tar.gz
           if-no-files-found: error
 
