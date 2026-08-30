@@ -495,7 +495,7 @@ dependencies = [
 
 [[package]]
 name = "tinybus"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "flate2",
@@ -514,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "tinybus-macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -523,7 +523,7 @@ dependencies = [
 
 [[package]]
 name = "tinybus-module"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "serde",
@@ -535,7 +535,7 @@ dependencies = [
 
 [[package]]
 name = "tinyvoice"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "thiserror",
  "tinyvoice-bus",
@@ -550,7 +550,7 @@ dependencies = [
 
 [[package]]
 name = "tinyvoice-module"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "base64 0.22.1",
  "serde",
