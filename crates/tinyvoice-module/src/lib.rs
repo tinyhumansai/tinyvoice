@@ -41,7 +41,7 @@
 
 mod service;
 
-#[cfg(feature = "linked")]
+#[cfg(feature = "static-link")]
 pub use service::linked_module;
 
 pub use service::{MAX_AUDIO_BYTES, MAX_SESSIONS, VoiceService};

@@ -14,7 +14,7 @@ publish = false
 crate-type = ["rlib", "cdylib"]
 
 [features]
-linked = []
+static-link = []
 
 [dependencies]
 # The transport-free TinyBus wire contract: names, payload types, and version.
