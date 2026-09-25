@@ -41,5 +41,8 @@
 
 mod service;
 
+#[cfg(feature = "linked")]
+pub use service::linked_module;
+
 pub use service::{MAX_AUDIO_BYTES, MAX_SESSIONS, VoiceService};
 pub use tinyvoice_bus::{BUS_NAME, OBJECT_PATH};

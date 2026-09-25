@@ -13,6 +13,9 @@ publish = false
 [lib]
 crate-type = ["rlib", "cdylib"]
 
+[features]
+linked = []
+
 [dependencies]
 # The transport-free TinyBus wire contract: names, payload types, and version.
 tinyvoice-bus = { version = "0.1.2", path = "../tinyvoice-bus" }
@@ -20,9 +23,9 @@ tinyvoice-bus = { version = "0.1.2", path = "../tinyvoice-bus" }
 # crate exists so the vendored TinyBus dependency never reaches it.
 tinyvoice = { version = "0.1.3", path = "../tinyvoice" }
 # TinyBus provides the typed service interface and the dynamic module host ABI.
-tinybus = { version = "0.1.0", path = "../../vendor/tinybus/crates/tinybus", default-features = false, features = ["macros", "modules"] }
+tinybus = { version = "=0.1.2", default-features = false, features = ["macros", "modules"] }
 # The module-side SDK owns its runtime and exports the stable C entrypoints.
-tinybus-module = { version = "0.1.0", path = "../../vendor/tinybus/crates/tinybus-module" }
+tinybus-module = "=0.1.2"
 # The module's methods are `async fn` on a served object, so it needs a runtime
 # even though every operation underneath is synchronous.
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -59,3 +62,8 @@ private_intra_doc_links = "warn"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[patch.crates-io]
+tinybus = { path = "../../vendor/tinybus/crates/tinybus" }
+tinybus-module = { path = "../../vendor/tinybus/crates/tinybus-module" }
+tinybus-macros = { path = "../../vendor/tinybus/crates/tinybus-macros" }
