@@ -73,7 +73,7 @@ fn parse_hotkey_supports_aliases_and_right_side_modifiers() {
 #[test]
 fn parse_hotkey_rejects_whitespace_only() {
     let err = parse_hotkey("   ").expect_err("whitespace-only hotkey should fail");
-    assert!(err.contains("empty"));
+    assert_eq!(err, crate::error::Error::EmptyHotkey);
 }
 
 #[test]
