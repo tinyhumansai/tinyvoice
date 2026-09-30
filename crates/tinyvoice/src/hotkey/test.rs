@@ -223,3 +223,36 @@ fn drop_emits_release_for_active_listener() {
 
     assert_eq!(event_receiver.try_recv(), Ok(HotkeyEvent::Released));
 }
+
+#[test]
+fn listener_forwards_activation_events_and_stops_callback_processing() {
+    let (mut handle, mut events) = start_listener_with(combo(), ActivationMode::Push, |callback| {
+        for event_type in [
+            EventType::KeyPress(Key::ControlLeft),
+            EventType::KeyPress(Key::Space),
+            EventType::KeyRelease(Key::Space),
+        ] {
+            callback(Event {
+                time: std::time::SystemTime::now(),
+                name: None,
+                event_type,
+            });
+        }
+    })
+    .expect("test listener should start");
+
+    handle
+        ._thread
+        .take()
+        .expect("test listener thread should exist")
+        .join()
+        .expect("test listener should exit");
+    assert_eq!(events.try_recv(), Ok(HotkeyEvent::Pressed));
+    assert_eq!(events.try_recv(), Ok(HotkeyEvent::Released));
+
+    handle.stop();
+    assert!(matches!(
+        start_listener_with(combo(), ActivationMode::Push, |_| {}),
+        Err(crate::error::Error::HotkeyListenerAlreadyStarted)
+    ));
+}
