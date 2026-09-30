@@ -17,12 +17,25 @@ tinyvoice-bus = { version = "0.1.2", path = "../tinyvoice-bus" }
 # Derive macros for the crate-wide error type in `src/error/mod.rs`.
 thiserror = "2"
 
+# `capture` only: microphone input and its plumbing.
+cpal = { version = "0.15", optional = true }
+log = { version = "0.4", optional = true }
+parking_lot = { version = "0.12", optional = true }
+tokio = { version = "1", default-features = false, features = ["sync"], optional = true }
+
 [dev-dependencies]
 # The intent and transcript types are a JSON wire contract; tests pin it.
 serde_json = "1"
+# The `capture` tests drive async handles with `#[tokio::test]`.
+tokio = { version = "1", features = ["macros", "rt", "sync"] }
 
 [features]
 default = []
+# Off by default: opening an audio device links the platform audio stack (ALSA
+# on Linux). Enables `capture`: microphone recording and the always-on chunk
+# stream, built on `cpal`. Microphone *permission* is not decided here; the host
+# passes a check in.
+capture = ["dep:cpal", "dep:log", "dep:parking_lot", "dep:tokio"]
 
 [lints]
 workspace = true
