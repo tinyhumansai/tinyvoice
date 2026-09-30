@@ -61,7 +61,10 @@ async fn a_recording_that_captured_nothing_reports_why() {
     }))
     .unwrap();
 
-    assert_eq!(handle.stop().await.unwrap_err(), "no audio samples captured");
+    assert_eq!(
+        handle.stop().await.unwrap_err(),
+        "no audio samples captured"
+    );
 }
 
 #[test]

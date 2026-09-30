@@ -30,6 +30,6 @@ fn the_offset_binary_form_matches_the_shifted_form_for_every_value() {
     let all: Vec<u16> = (0..=u16::MAX).collect();
     let shifted = u16_to_f32(&all);
     for (s, got) in all.iter().zip(shifted) {
-        assert_eq!(got, f32::from(*s) / 32768.0 - 1.0);
+        assert_eq!(got.to_bits(), (f32::from(*s) / 32768.0 - 1.0).to_bits());
     }
 }

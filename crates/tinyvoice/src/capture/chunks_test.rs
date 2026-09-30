@@ -54,8 +54,11 @@ fn a_stream_that_comes_up_reports_its_format() {
 #[test]
 fn a_body_error_reaches_the_caller_with_its_reason() {
     let (tx, _rx) = tokio::sync::mpsc::channel(1);
-    let error = spawn_stream_thread(tx, Box::new(|_, _| Err("no default audio input device".into())))
-        .unwrap_err();
+    let error = spawn_stream_thread(
+        tx,
+        Box::new(|_, _| Err("no default audio input device".into())),
+    )
+    .unwrap_err();
     assert_eq!(error, "no default audio input device");
 }
 

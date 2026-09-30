@@ -6,6 +6,16 @@
 //! sample-format conversion and the config choice around it are all tested.
 //! It is excluded from the per-file coverage gate for that reason.
 
+// The device flow is one linear sequence (permission, host, device, config,
+// stream, play) whose error arms each carry a distinct, user-visible message.
+// Splitting it would scatter that sequence without making any arm testable.
+#![allow(
+    clippy::too_many_lines,
+    clippy::manual_let_else,
+    clippy::single_match_else,
+    clippy::needless_pass_by_value
+)]
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -254,7 +264,6 @@ pub(crate) fn record_on_thread(
         channels: source_channels,
     })
 }
-
 
 /// List available input devices.
 ///

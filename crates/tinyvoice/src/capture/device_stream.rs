@@ -5,6 +5,16 @@
 //! excluded from the per-file coverage gate; the forwarding, drop accounting and
 //! thread handshake it relies on are tested in [`super::chunks`].
 
+// The device flow is one linear sequence (permission, host, device, config,
+// stream, play) whose error arms each carry a distinct, user-visible message.
+// Splitting it would scatter that sequence without making any arm testable.
+#![allow(
+    clippy::too_many_lines,
+    clippy::manual_let_else,
+    clippy::single_match_else,
+    clippy::needless_pass_by_value
+)]
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, StreamConfig};
 
@@ -47,20 +57,20 @@ pub(crate) fn capture_on_thread(
         "{LOG_PREFIX} capture device ready name='{device_name}' rate={source_rate}->{TARGET_SAMPLE_RATE} channels={channels} format={sample_format:?}"
     );
 
-    let forward = move |samples: Vec<f32>| forward(&tx, samples);
+    let send_chunk = move |samples: Vec<f32>| forward(&tx, samples);
 
     let err_fn = |e| log::warn!("{LOG_PREFIX} cpal stream error: {e}");
     let stream = match sample_format {
         SampleFormat::F32 => device.build_input_stream(
             &stream_config,
-            move |data: &[f32], _| forward(data.to_vec()),
+            move |data: &[f32], _| send_chunk(data.to_vec()),
             err_fn,
             None,
         ),
         SampleFormat::I16 => device.build_input_stream(
             &stream_config,
             move |data: &[i16], _| {
-                forward(data.iter().map(|&s| f32::from(s) / 32768.0).collect());
+                send_chunk(data.iter().map(|&s| f32::from(s) / 32768.0).collect());
             },
             err_fn,
             None,
@@ -68,7 +78,7 @@ pub(crate) fn capture_on_thread(
         SampleFormat::U16 => device.build_input_stream(
             &stream_config,
             move |data: &[u16], _| {
-                forward(data.iter().map(|&s| f32::from(s) / 32768.0 - 1.0).collect());
+                send_chunk(data.iter().map(|&s| f32::from(s) / 32768.0 - 1.0).collect());
             },
             err_fn,
             None,
