@@ -90,6 +90,13 @@ fn process_hotkey_event_push_requires_modifier_then_releases() {
         &is_active,
     );
     assert!(no_emit.is_empty());
+    process_hotkey_event(
+        EventType::KeyRelease(Key::Space),
+        &combo,
+        ActivationMode::Push,
+        &mut pressed,
+        &is_active,
+    );
 
     process_hotkey_event(
         EventType::KeyPress(Key::ControlLeft),
