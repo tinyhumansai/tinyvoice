@@ -62,10 +62,19 @@ pub struct HotkeyListenerHandle {
     stop_flag: Arc<AtomicBool>,
     is_active: Arc<AtomicBool>,
     event_sender: mpsc::UnboundedSender<HotkeyEvent>,
-    thread: Option<std::thread::JoinHandle<()>>,
+    _thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl HotkeyListenerHandle {
+    #[cfg(test)]
+    fn join_test_listener(&mut self) {
+        self._thread
+            .take()
+            .expect("test listener thread should exist")
+            .join()
+            .expect("test listener should exit");
+    }
+
     /// Signal the listener to ignore further events.
     ///
     /// Note: this does **not** terminate the listener thread. `rdev::listen`
@@ -289,7 +298,7 @@ fn start_listener_with(
             stop_flag,
             is_active,
             event_sender: handle_tx,
-            thread: Some(thread),
+            _thread: Some(thread),
         },
         rx,
     ))

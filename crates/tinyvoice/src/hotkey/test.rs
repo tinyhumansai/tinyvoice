@@ -251,7 +251,7 @@ fn stop_emits_release_for_active_listener() {
         stop_flag: Arc::new(AtomicBool::new(false)),
         is_active,
         event_sender,
-        thread: None,
+        _thread: None,
     };
 
     handle.stop();
@@ -266,7 +266,7 @@ fn drop_emits_release_for_active_listener() {
         stop_flag: Arc::new(AtomicBool::new(false)),
         is_active: Arc::new(AtomicBool::new(true)),
         event_sender,
-        thread: None,
+        _thread: None,
     };
 
     drop(handle);
@@ -291,12 +291,7 @@ fn listener_forwards_activation_events_and_stops_callback_processing() {
     })
     .expect("test listener should start");
 
-    handle
-        .thread
-        .take()
-        .expect("test listener thread should exist")
-        .join()
-        .expect("test listener should exit");
+    handle.join_test_listener();
     assert_eq!(events.try_recv(), Ok(HotkeyEvent::Pressed));
     assert_eq!(events.try_recv(), Ok(HotkeyEvent::Released));
 
