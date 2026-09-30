@@ -144,6 +144,14 @@ fn process_hotkey_event(
             pressed_keys.remove(&key);
 
             if key != hotkey.trigger {
+                if mode == ActivationMode::Push
+                    && hotkey.modifiers.contains(&key)
+                    && is_active.swap(false, Ordering::SeqCst)
+                {
+                    pressed_keys.remove(&hotkey.trigger);
+                    info!("{LOG_PREFIX} push → Released (modifier released)");
+                    emitted.push(HotkeyEvent::Released);
+                }
                 return emitted;
             }
 

@@ -150,6 +150,25 @@ fn process_hotkey_event_push_repeat_does_not_release_while_held() {
 }
 
 #[test]
+fn process_hotkey_event_push_releases_if_modifier_is_released_first() {
+    let combo = combo();
+    let is_active = AtomicBool::new(true);
+    let mut pressed = HashSet::from([Key::ControlLeft, Key::Space]);
+
+    let released = process_hotkey_event(
+        EventType::KeyRelease(Key::ControlLeft),
+        &combo,
+        ActivationMode::Push,
+        &mut pressed,
+        &is_active,
+    );
+
+    assert_eq!(released, vec![HotkeyEvent::Released]);
+    assert!(!pressed.contains(&Key::Space));
+    assert!(!is_active.load(Ordering::SeqCst));
+}
+
+#[test]
 fn process_hotkey_event_tap_ignores_repeated_key_down_while_held() {
     let combo = combo();
     let is_active = AtomicBool::new(false);
