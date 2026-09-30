@@ -257,6 +257,10 @@ pub(crate) fn record_on_thread(
 
 
 /// List available input devices.
+///
+/// # Errors
+///
+/// A message when the platform cannot enumerate input devices.
 pub fn list_input_devices() -> Result<Vec<String>, String> {
     let host = cpal::default_host();
     let devices = host
