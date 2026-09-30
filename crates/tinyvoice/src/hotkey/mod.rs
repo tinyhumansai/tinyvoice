@@ -62,7 +62,7 @@ pub struct HotkeyListenerHandle {
     stop_flag: Arc<AtomicBool>,
     is_active: Arc<AtomicBool>,
     event_sender: mpsc::UnboundedSender<HotkeyEvent>,
-    _thread: Option<std::thread::JoinHandle<()>>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl HotkeyListenerHandle {
@@ -289,7 +289,7 @@ fn start_listener_with(
             stop_flag,
             is_active,
             event_sender: handle_tx,
-            _thread: Some(thread),
+            thread: Some(thread),
         },
         rx,
     ))
