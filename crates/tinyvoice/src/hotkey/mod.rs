@@ -223,6 +223,18 @@ pub fn start_listener(
     hotkey: HotkeyCombination,
     mode: ActivationMode,
 ) -> crate::Result<(HotkeyListenerHandle, mpsc::UnboundedReceiver<HotkeyEvent>)> {
+    start_listener_with(hotkey, mode, |callback| {
+        if let Err(error) = listen(callback) {
+            warn!("{LOG_PREFIX} rdev listen error: {error:?}");
+        }
+    })
+}
+
+fn start_listener_with(
+    hotkey: HotkeyCombination,
+    mode: ActivationMode,
+    listen_events: impl FnOnce(Box<dyn Fn(Event) + Send>) + Send + 'static,
+) -> crate::Result<(HotkeyListenerHandle, mpsc::UnboundedReceiver<HotkeyEvent>)> {
     let listener_started = LISTENER_STARTED.get_or_init(|| AtomicBool::new(false));
     listener_started
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -245,7 +257,7 @@ pub fn start_listener(
     let thread = match std::thread::Builder::new()
         .name("voice-hotkey".into())
         .spawn(move || {
-            let callback = move |event: Event| {
+            let callback = Box::new(move |event: Event| {
                 if stop_flag_clone.load(Ordering::SeqCst) {
                     return;
                 }
@@ -262,11 +274,8 @@ pub fn start_listener(
                 for event in emitted {
                     let _ = tx.send(event);
                 }
-            };
-
-            if let Err(e) = listen(callback) {
-                warn!("{LOG_PREFIX} rdev listen error: {e:?}");
-            }
+            });
+            listen_events(callback);
         }) {
         Ok(thread) => thread,
         Err(error) => {
