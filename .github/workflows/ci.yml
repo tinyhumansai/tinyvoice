@@ -28,6 +28,9 @@ jobs:
           persist-credentials: false
           submodules: true
 
+      - name: Install X11 development libraries
+        run: sudo apt-get update && sudo apt-get install --yes libx11-dev libxtst-dev
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -83,6 +86,9 @@ jobs:
           persist-credentials: false
           submodules: true
 
+      - name: Install X11 development libraries
+        run: sudo apt-get update && sudo apt-get install --yes libx11-dev libxtst-dev
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -100,6 +106,9 @@ jobs:
         with:
           persist-credentials: false
           submodules: true
+
+      - name: Install X11 development libraries
+        run: sudo apt-get update && sudo apt-get install --yes libx11-dev libxtst-dev
 
       - name: Read rust-version from Cargo.toml
         id: msrv
