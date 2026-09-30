@@ -23,6 +23,8 @@ log = { version = "0.4", optional = true }
 parking_lot = { version = "0.12", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 tokio = { version = "1", default-features = false, features = ["sync"], optional = true }
+# `capture` only: microphone input.
+cpal = { version = "0.15", optional = true }
 
 [dev-dependencies]
 # The intent and transcript types are a JSON wire contract; tests pin it.
@@ -34,6 +36,11 @@ default = []
 # free of OS input hooks. Enables `hotkey`: a system-wide push-to-talk / toggle
 # key listener built on `rdev`.
 hotkey = ["dep:rdev", "dep:log", "dep:parking_lot", "dep:serde", "dep:tokio"]
+# Off by default for the same reason: opening an audio device links the platform
+# audio stack (ALSA on Linux). Enables `capture`: microphone recording and the
+# always-on chunk stream, built on `cpal`. Microphone *permission* is not decided
+# here; the host passes a check in.
+capture = ["dep:cpal", "dep:log", "dep:parking_lot", "dep:tokio"]
 
 [lints]
 workspace = true

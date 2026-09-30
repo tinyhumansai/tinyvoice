@@ -18,7 +18,7 @@
 //!
 //! | Stays with the host | Why |
 //! | --- | --- |
-//! | Device capture (`cpal`) | A stream is `!Send`, needs the host's thread and its permission model |
+//! | Microphone permission | Differs per OS and per host; the `capture` feature takes a check as a parameter |
 //! | STT / TTS transport | Endpoint choice, credentials and retry are host policy |
 //! | Hotkeys, text injection | Platform input APIs, and a host's own accessibility posture |
 //! | Config and RPC shapes | The host's wire contract, not this crate's |
@@ -37,6 +37,9 @@
 //! - [`intent`] — transcript to [`intent::VoiceIntent`], the fast-path
 //!   classifier that lets a host skip an LLM turn.
 //! - [`transcript`] — STT hallucination detection.
+//! - `capture` (cargo feature `capture`, off by default) — microphone input on
+//!   `cpal`: a one-shot recording and a continuous chunk stream, both returning
+//!   raw device samples for the functions in [`audio`] to process.
 //! - `hotkey` (cargo feature `hotkey`, off by default) — a system-wide
 //!   push-to-talk / toggle key listener on `rdev`, for hosts that gate
 //!   recording on a key.
@@ -53,6 +56,8 @@
 mod error;
 
 pub mod audio;
+#[cfg(feature = "capture")]
+pub mod capture;
 #[cfg(feature = "hotkey")]
 pub mod hotkey;
 pub mod intent;
