@@ -55,6 +55,13 @@ assert_eq!(route(&command), VoiceIntent::Pause);
 
 Run it: `cargo run -p tinyvoice --example basic`.
 
+### Optional features
+
+- `hotkey` (off by default): `tinyvoice::hotkey`, a system-wide push-to-talk /
+  toggle key listener built on `rdev` (`parse_hotkey`, `start_listener`,
+  `ActivationMode`, `HotkeyEvent`). Off by default so the library, and the
+  loadable module built from it, carry no OS input hook.
+
 ## Use it as a TinyBus module
 
 The module claims `ai.tinyhumans.tinyvoice.Voice` and serves
