@@ -12,14 +12,13 @@
 //! `tinywallet` follow: **a crate owns what is identical for every host; the
 //! host owns what depends on its own runtime, config, or threat model.**
 //!
-//! So by default this crate is synchronous, I/O-free and runtime-free. It does
-//! not call an STT or TTS endpoint, own a hotkey, or know what a `Config` is; the
-//! off-by-default `capture` feature is the only part that touches the machine (a
-//! microphone). Those are the host's:
+//! So this crate is synchronous, I/O-free and runtime-free. It does not open a
+//! microphone, call an STT or TTS endpoint, own a hotkey, or know what a
+//! `Config` is. Those are the host's:
 //!
 //! | Stays with the host | Why |
 //! | --- | --- |
-//! | Microphone permission | Differs per OS and per host; the `capture` feature takes a check as a parameter |
+//! | Device capture (`cpal`) | A stream is `!Send`, needs the host's thread and its permission model |
 //! | STT / TTS transport | Endpoint choice, credentials and retry are host policy |
 //! | Hotkeys, text injection | Platform input APIs, and a host's own accessibility posture |
 //! | Config and RPC shapes | The host's wire contract, not this crate's |
@@ -38,9 +37,10 @@
 //! - [`intent`] — transcript to [`intent::VoiceIntent`], the fast-path
 //!   classifier that lets a host skip an LLM turn.
 //! - [`transcript`] — STT hallucination detection.
-//! - `capture` (cargo feature `capture`, off by default) — microphone input on
-//!   `cpal`: a one-shot recording and a continuous chunk stream, both returning
-//!   raw device samples for the functions in [`audio`] to process.
+//! - `hotkey` (cargo feature `hotkey`, off by default) — a system-wide
+//!   push-to-talk / toggle key listener on `rdev`, for hosts that gate
+//!   recording on a key. This feature adds OS input-hook and runtime plumbing;
+//!   hosts can instead keep those concerns in their own runtime.
 //!
 //! # Example
 //!
@@ -56,6 +56,8 @@ mod error;
 pub mod audio;
 #[cfg(feature = "capture")]
 pub mod capture;
+#[cfg(feature = "hotkey")]
+pub mod hotkey;
 pub mod intent;
 pub mod transcript;
 pub mod vad;

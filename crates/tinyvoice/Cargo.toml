@@ -17,10 +17,13 @@ tinyvoice-bus = { version = "0.1.2", path = "../tinyvoice-bus" }
 # Derive macros for the crate-wide error type in `src/error/mod.rs`.
 thiserror = "2"
 
+# `hotkey` only: the global keyboard listener and its plumbing.
+rdev = { version = "0.5", optional = true }
 # `capture` only: microphone input and its plumbing.
 cpal = { version = "0.15", optional = true }
 log = { version = "0.4", optional = true }
 parking_lot = { version = "0.12", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
 tokio = { version = "1", default-features = false, features = ["sync"], optional = true }
 
 [dev-dependencies]
@@ -31,10 +34,12 @@ tokio = { version = "1", features = ["macros", "rt", "sync"] }
 
 [features]
 default = []
+# Off by default so the library (and the loadable module built from it) stays
+# free of OS input hooks. Enables `hotkey`: a system-wide push-to-talk / toggle
+# key listener built on `rdev`.
+hotkey = ["dep:rdev", "dep:log", "dep:parking_lot", "dep:serde", "dep:tokio"]
 # Off by default: opening an audio device links the platform audio stack (ALSA
-# on Linux). Enables `capture`: microphone recording and the always-on chunk
-# stream, built on `cpal`. Microphone *permission* is not decided here; the host
-# passes a check in.
+# on Linux). Microphone permission is passed in by the host.
 capture = ["dep:cpal", "dep:log", "dep:parking_lot", "dep:tokio"]
 
 [lints]
