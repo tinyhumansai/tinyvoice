@@ -169,6 +169,56 @@ fn process_hotkey_event_push_releases_if_modifier_is_released_first() {
 }
 
 #[test]
+fn process_hotkey_event_tap_toggles_after_a_complete_key_cycle() {
+    let combo = parse_hotkey("space").unwrap();
+    let is_active = AtomicBool::new(false);
+    let mut pressed = HashSet::new();
+
+    let started = process_hotkey_event(
+        EventType::KeyPress(Key::Space),
+        &combo,
+        ActivationMode::Tap,
+        &mut pressed,
+        &is_active,
+    );
+    process_hotkey_event(
+        EventType::KeyRelease(Key::Space),
+        &combo,
+        ActivationMode::Tap,
+        &mut pressed,
+        &is_active,
+    );
+    let stopped = process_hotkey_event(
+        EventType::KeyPress(Key::Space),
+        &combo,
+        ActivationMode::Tap,
+        &mut pressed,
+        &is_active,
+    );
+
+    assert_eq!(started, vec![HotkeyEvent::Pressed]);
+    assert_eq!(stopped, vec![HotkeyEvent::Released]);
+}
+
+#[test]
+fn process_hotkey_event_push_falls_back_when_active_without_cached_trigger() {
+    let combo = parse_hotkey("space").unwrap();
+    let is_active = AtomicBool::new(true);
+    let mut pressed = HashSet::new();
+
+    let released = process_hotkey_event(
+        EventType::KeyPress(Key::Space),
+        &combo,
+        ActivationMode::Push,
+        &mut pressed,
+        &is_active,
+    );
+
+    assert_eq!(released, vec![HotkeyEvent::Released]);
+    assert!(!is_active.load(Ordering::SeqCst));
+}
+
+#[test]
 fn process_hotkey_event_tap_ignores_repeated_key_down_while_held() {
     let combo = combo();
     let is_active = AtomicBool::new(false);
