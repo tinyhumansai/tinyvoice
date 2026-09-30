@@ -55,6 +55,7 @@ pub struct HotkeyCombination {
 }
 
 /// Handle to a running hotkey listener. Drop to stop.
+#[derive(Debug)]
 pub struct HotkeyListenerHandle {
     stop_flag: Arc<AtomicBool>,
     _thread: Option<std::thread::JoinHandle<()>>,
@@ -102,10 +103,7 @@ fn process_hotkey_event(
             }
 
             let was_active = is_active.load(Ordering::SeqCst);
-            debug!(
-                "{LOG_PREFIX} KeyPress trigger={:?} was_active={was_active} mode={mode:?}",
-                key
-            );
+            debug!("{LOG_PREFIX} KeyPress trigger={key:?} was_active={was_active} mode={mode:?}");
 
             match mode {
                 ActivationMode::Tap => {
@@ -120,14 +118,14 @@ fn process_hotkey_event(
                     }
                 }
                 ActivationMode::Push => {
-                    if !was_active {
-                        is_active.store(true, Ordering::SeqCst);
-                        info!("{LOG_PREFIX} push → Pressed");
-                        emitted.push(HotkeyEvent::Pressed);
-                    } else {
+                    if was_active {
                         is_active.store(false, Ordering::SeqCst);
                         info!("{LOG_PREFIX} push → Released (fallback, missed KeyRelease)");
                         emitted.push(HotkeyEvent::Released);
+                    } else {
+                        is_active.store(true, Ordering::SeqCst);
+                        info!("{LOG_PREFIX} push → Pressed");
+                        emitted.push(HotkeyEvent::Pressed);
                     }
                 }
             }
@@ -157,10 +155,18 @@ fn process_hotkey_event(
 }
 
 /// Parse a hotkey string like "ctrl+shift+space" or "fn" into a `HotkeyCombination`.
+///
+/// Segments are `+`-separated, trimmed, and empty segments are ignored; the last
+/// segment is the trigger and every earlier one a modifier.
+///
+/// # Errors
+///
+/// Returns a message when the string has no segments or names a key this crate
+/// does not know.
 pub fn parse_hotkey(hotkey_str: &str) -> Result<HotkeyCombination, String> {
     let parts: Vec<&str> = hotkey_str
         .split('+')
-        .map(|s| s.trim())
+        .map(str::trim)
         .filter(|s| !s.is_empty())
         .collect();
 
@@ -182,10 +188,7 @@ pub fn parse_hotkey(hotkey_str: &str) -> Result<HotkeyCombination, String> {
 
     let trigger = trigger.ok_or_else(|| "no trigger key specified".to_string())?;
 
-    debug!(
-        "{LOG_PREFIX} parsed hotkey: modifiers={:?} trigger={:?}",
-        modifiers, trigger
-    );
+    debug!("{LOG_PREFIX} parsed hotkey: modifiers={modifiers:?} trigger={trigger:?}");
 
     Ok(HotkeyCombination { modifiers, trigger })
 }
@@ -193,7 +196,11 @@ pub fn parse_hotkey(hotkey_str: &str) -> Result<HotkeyCombination, String> {
 /// Start the global hotkey listener.
 ///
 /// Returns a handle (drop to stop) and a receiver for hotkey events.
-/// The listener runs on a dedicated OS thread since rdev::listen is blocking.
+/// The listener runs on a dedicated OS thread since `rdev::listen` is blocking.
+///
+/// # Errors
+///
+/// Returns a message when the listener thread cannot be spawned.
 pub fn start_listener(
     hotkey: HotkeyCombination,
     mode: ActivationMode,

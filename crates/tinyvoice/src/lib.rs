@@ -37,6 +37,9 @@
 //! - [`intent`] — transcript to [`intent::VoiceIntent`], the fast-path
 //!   classifier that lets a host skip an LLM turn.
 //! - [`transcript`] — STT hallucination detection.
+//! - `hotkey` (cargo feature `hotkey`, off by default) — a system-wide
+//!   push-to-talk / toggle key listener on `rdev`, for hosts that gate
+//!   recording on a key.
 //!
 //! # Example
 //!
