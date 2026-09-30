@@ -50,6 +50,8 @@
 mod error;
 
 pub mod audio;
+#[cfg(feature = "hotkey")]
+pub mod hotkey;
 pub mod intent;
 pub mod transcript;
 pub mod vad;
