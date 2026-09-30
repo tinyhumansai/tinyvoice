@@ -125,5 +125,8 @@ async fn a_capture_task_that_vanishes_is_reported() {
 #[test]
 fn a_denied_permission_stops_a_recording_before_any_device_is_touched() {
     let error = super::start_recording(|| Err("microphone access denied".to_string())).unwrap_err();
-    assert_eq!(error, "microphone access denied");
+    assert_eq!(
+        error,
+        crate::Error::Capture("microphone access denied".into())
+    );
 }

@@ -58,11 +58,12 @@ pub(crate) type StreamBody = Box<
 pub fn spawn_capture_thread(
     tx: tokio::sync::mpsc::Sender<RawChunk>,
     permission: PermissionCheck,
-) -> Result<CaptureFormat, String> {
+) -> crate::Result<CaptureFormat> {
     spawn_stream_thread(
         tx,
         Box::new(move |tx, setup| super::device_stream::capture_on_thread(permission, tx, setup)),
     )
+    .map_err(crate::Error::Capture)
 }
 
 /// Run `body` on the stream thread and wait for its readiness report.

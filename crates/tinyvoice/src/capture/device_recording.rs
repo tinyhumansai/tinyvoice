@@ -292,11 +292,11 @@ fn receive_stream_error(receiver: &Receiver<String>) -> Option<String> {
 /// # Errors
 ///
 /// A message when the platform cannot enumerate input devices.
-pub fn list_input_devices() -> Result<Vec<String>, String> {
+pub fn list_input_devices() -> crate::Result<Vec<String>> {
     let host = cpal::default_host();
     let devices = host
         .input_devices()
-        .map_err(|e| format!("failed to enumerate input devices: {e}"))?;
+        .map_err(|e| crate::Error::Capture(format!("failed to enumerate input devices: {e}")))?;
 
     let names: Vec<String> = devices.filter_map(|d| d.name().ok()).collect();
 

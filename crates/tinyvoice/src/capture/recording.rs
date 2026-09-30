@@ -58,12 +58,13 @@ impl RecordingHandle {
     ///
     /// The capture error if the recording itself failed (for example, no
     /// samples were captured), or a message if the capture task vanished.
-    pub async fn stop(mut self) -> Result<RawRecording, String> {
+    pub async fn stop(mut self) -> crate::Result<RawRecording> {
         self.stop_flag.store(true, Ordering::SeqCst);
         debug!("{LOG_PREFIX} stop signal sent");
         (&mut self.result_rx)
             .await
-            .map_err(|_| "recording task dropped before completing".to_string())?
+            .map_err(|_| crate::Error::Capture("recording task dropped before completing".into()))?
+            .map_err(crate::Error::Capture)
     }
 }
 
@@ -83,10 +84,11 @@ impl Drop for RecordingHandle {
 ///
 /// The reason capture could not start: the permission check's message, a
 /// missing device, an unsupported format, or the thread failing to spawn.
-pub fn start_recording(permission: PermissionCheck) -> Result<RecordingHandle, String> {
+pub fn start_recording(permission: PermissionCheck) -> crate::Result<RecordingHandle> {
     spawn_recording(Box::new(move |stop, setup| {
         super::device_recording::record_on_thread(permission, stop, setup)
     }))
+    .map_err(crate::Error::Capture)
 }
 
 /// Run `body` on the recording thread and wait for its readiness report.
