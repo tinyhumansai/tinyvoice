@@ -40,6 +40,9 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install X11 development libraries
+        run: sudo apt-get update && sudo apt-get install --yes libx11-dev libxtst-dev
+
       - uses: taiki-e/install-action@cargo-llvm-cov
 
       - uses: Swatinem/rust-cache@v2

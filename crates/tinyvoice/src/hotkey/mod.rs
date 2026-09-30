@@ -61,6 +61,7 @@ pub struct HotkeyCombination {
 pub struct HotkeyListenerHandle {
     stop_flag: Arc<AtomicBool>,
     is_active: Arc<AtomicBool>,
+    callback_lock: Arc<Mutex<()>>,
     event_sender: mpsc::UnboundedSender<HotkeyEvent>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -78,6 +79,7 @@ impl HotkeyListenerHandle {
     /// (rdev 0.5). The thread stays alive until the process exits; the
     /// stop flag merely causes the callback to discard all events.
     pub fn stop(&self) {
+        let _callback_guard = self.callback_lock.lock();
         self.stop_flag.store(true, Ordering::SeqCst);
         if self.is_active.swap(false, Ordering::SeqCst) {
             let _ = self.event_sender.send(HotkeyEvent::Released);
@@ -88,6 +90,7 @@ impl HotkeyListenerHandle {
 
 impl Drop for HotkeyListenerHandle {
     fn drop(&mut self) {
+        let _callback_guard = self.callback_lock.lock();
         self.stop_flag.store(true, Ordering::SeqCst);
         drop(self.thread.take());
         if self.is_active.swap(false, Ordering::SeqCst) {
@@ -251,6 +254,8 @@ fn start_listener_with(
     let handle_tx = tx.clone();
 
     let stop_flag_clone = stop_flag.clone();
+    let callback_lock = Arc::new(Mutex::new(()));
+    let callback_lock_clone = callback_lock.clone();
     let pressed_keys: Arc<Mutex<HashSet<Key>>> = Arc::new(Mutex::new(HashSet::new()));
     let is_active = Arc::new(AtomicBool::new(false));
     let callback_is_active = is_active.clone();
@@ -264,6 +269,7 @@ fn start_listener_with(
         .name("voice-hotkey".into())
         .spawn(move || {
             let callback = Box::new(move |event: Event| {
+                let _callback_guard = callback_lock_clone.lock();
                 if stop_flag_clone.load(Ordering::SeqCst) {
                     return;
                 }
@@ -294,6 +300,7 @@ fn start_listener_with(
         HotkeyListenerHandle {
             stop_flag,
             is_active,
+            callback_lock,
             event_sender: handle_tx,
             thread: Some(thread),
         },

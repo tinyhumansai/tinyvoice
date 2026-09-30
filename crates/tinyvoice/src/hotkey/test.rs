@@ -299,6 +299,7 @@ fn stop_emits_release_for_active_listener() {
     let handle = HotkeyListenerHandle {
         stop_flag: Arc::new(AtomicBool::new(false)),
         is_active,
+        callback_lock: Arc::new(Mutex::new(())),
         event_sender,
         thread: None,
     };
@@ -314,6 +315,7 @@ fn drop_emits_release_for_active_listener() {
     let handle = HotkeyListenerHandle {
         stop_flag: Arc::new(AtomicBool::new(false)),
         is_active: Arc::new(AtomicBool::new(true)),
+        callback_lock: Arc::new(Mutex::new(())),
         event_sender,
         thread: None,
     };
