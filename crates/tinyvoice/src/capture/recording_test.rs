@@ -87,7 +87,7 @@ async fn a_recording_that_captured_nothing_reports_why() {
 
     assert_eq!(
         handle.stop().await.unwrap_err(),
-        "no audio samples captured"
+        crate::Error::Capture("no audio samples captured".into())
     );
 }
 
@@ -118,7 +118,7 @@ async fn a_capture_task_that_vanishes_is_reported() {
     .unwrap();
     assert_eq!(
         handle.stop().await.unwrap_err(),
-        "recording task dropped before completing"
+        crate::Error::Capture("recording task dropped before completing".into())
     );
 }
 

@@ -91,5 +91,8 @@ fn a_denied_permission_stops_the_stream_before_any_device_is_touched() {
     let (tx, _rx) = tokio::sync::mpsc::channel(1);
     let error = super::spawn_capture_thread(tx, || Err("microphone permission denied".to_string()))
         .unwrap_err();
-    assert_eq!(error, "microphone permission denied");
+    assert_eq!(
+        error,
+        crate::Error::Capture("microphone permission denied".into())
+    );
 }
