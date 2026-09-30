@@ -18,6 +18,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, Sender};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, StreamConfig};
@@ -29,6 +30,14 @@ use super::recording::{RawRecording, append_capped};
 use super::{PermissionCheck, TARGET_SAMPLE_RATE};
 
 const LOG_PREFIX: &str = "[voice_capture]";
+
+fn stream_error_callback(sender: Sender<String>) -> impl FnMut(cpal::StreamError) + Send + 'static {
+    move |err| {
+        let message = format!("audio stream error: {err}");
+        warn!("{LOG_PREFIX} {message}");
+        let _ = sender.send(message);
+    }
+}
 
 /// Runs the entire recording lifecycle on a single thread (cpal requirement).
 ///
@@ -118,6 +127,7 @@ pub(crate) fn record_on_thread(
 
     let sample_format = config.sample_format();
     let stream_config: StreamConfig = config.into();
+    let (stream_error_tx, stream_error_rx) = std::sync::mpsc::channel();
 
     let stream = {
         let samples_writer = samples.clone();
@@ -128,7 +138,7 @@ pub(crate) fn record_on_thread(
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
                         append_capped(&samples_writer, data);
                     },
-                    |err| warn!("{LOG_PREFIX} audio stream error: {err}"),
+                    stream_error_callback(stream_error_tx.clone()),
                     None,
                 )
                 .map_err(|e| format!("failed to build f32 input stream: {e}")),
@@ -138,7 +148,7 @@ pub(crate) fn record_on_thread(
                     move |data: &[i16], _: &cpal::InputCallbackInfo| {
                         append_capped(&samples_writer, &i16_to_f32(data));
                     },
-                    |err| warn!("{LOG_PREFIX} audio stream error: {err}"),
+                    stream_error_callback(stream_error_tx.clone()),
                     None,
                 )
                 .map_err(|e| format!("failed to build i16 input stream: {e}")),
@@ -148,7 +158,7 @@ pub(crate) fn record_on_thread(
                     move |data: &[u16], _: &cpal::InputCallbackInfo| {
                         append_capped(&samples_writer, &u16_to_f32(data));
                     },
-                    |err| warn!("{LOG_PREFIX} audio stream error: {err}"),
+                    stream_error_callback(stream_error_tx.clone()),
                     None,
                 )
                 .map_err(|e| format!("failed to build u16 input stream: {e}")),
@@ -184,7 +194,7 @@ pub(crate) fn record_on_thread(
                                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                                     append_capped(&sw, data);
                                 },
-                                |err| warn!("{LOG_PREFIX} audio stream error: {err}"),
+                                stream_error_callback(stream_error_tx.clone()),
                                 None,
                             )
                             .map_err(|e| format!("fallback f32 stream failed: {e}")),
@@ -194,7 +204,7 @@ pub(crate) fn record_on_thread(
                                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
                                     append_capped(&sw, &i16_to_f32(data));
                                 },
-                                |err| warn!("{LOG_PREFIX} audio stream error: {err}"),
+                                stream_error_callback(stream_error_tx.clone()),
                                 None,
                             )
                             .map_err(|e| format!("fallback i16 stream failed: {e}")),
@@ -204,7 +214,7 @@ pub(crate) fn record_on_thread(
                                 move |data: &[u16], _: &cpal::InputCallbackInfo| {
                                     append_capped(&sw, &u16_to_f32(data));
                                 },
-                                |err| warn!("{LOG_PREFIX} audio stream error: {err}"),
+                                stream_error_callback(stream_error_tx.clone()),
                                 None,
                             )
                             .map_err(|e| format!("fallback u16 stream failed: {e}")),
@@ -243,6 +253,10 @@ pub(crate) fn record_on_thread(
 
     // Poll stop flag while keeping the stream alive on this thread.
     while !stop_flag.load(Ordering::SeqCst) {
+        if let Some(error) = receive_stream_error(&stream_error_rx) {
+            drop(stream);
+            return Err(error);
+        }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 
@@ -263,6 +277,10 @@ pub(crate) fn record_on_thread(
         source_rate: source_sample_rate,
         channels: source_channels,
     })
+}
+
+fn receive_stream_error(receiver: &Receiver<String>) -> Option<String> {
+    receiver.try_recv().ok()
 }
 
 /// List available input devices.
