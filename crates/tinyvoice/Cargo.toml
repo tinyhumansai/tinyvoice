@@ -19,6 +19,8 @@ thiserror = "2"
 
 # `hotkey` only: the global keyboard listener and its plumbing.
 rdev = { version = "0.5", optional = true }
+# `capture` only: microphone input and its plumbing.
+cpal = { version = "0.15", optional = true }
 log = { version = "0.4", optional = true }
 parking_lot = { version = "0.12", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
@@ -34,6 +36,9 @@ default = []
 # free of OS input hooks. Enables `hotkey`: a system-wide push-to-talk / toggle
 # key listener built on `rdev`.
 hotkey = ["dep:rdev", "dep:log", "dep:parking_lot", "dep:serde", "dep:tokio"]
+# Off by default: opening an audio device links the platform audio stack (ALSA
+# on Linux). Microphone permission is passed in by the host.
+capture = ["dep:cpal", "dep:log", "dep:parking_lot", "dep:tokio"]
 
 [lints]
 workspace = true

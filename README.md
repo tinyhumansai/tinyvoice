@@ -18,7 +18,9 @@ its own runtime, config, or threat model.**
 
 So the default crate build is synchronous, I/O-free and runtime-free. It does
 not open a microphone, call an STT or TTS endpoint, or know what a `Config` is.
-The optional `hotkey` feature adds a host-facing global keyboard listener.
+The optional `hotkey` feature adds a host-facing global keyboard listener. The
+optional `capture` feature adds microphone capture when a host supplies a
+permission check.
 
 | Here | With the host |
 | --- | --- |
@@ -61,6 +63,11 @@ Run it: `cargo run -p tinyvoice --example basic`.
   toggle key listener built on `rdev` (`parse_hotkey`, `start_listener`,
   `ActivationMode`, `HotkeyEvent`). Off by default so the library, and the
   loadable module built from it, carry no OS input hook.
+- `capture` (off by default): `tinyvoice::capture`, microphone input on `cpal`:
+  `start_recording` for a one-shot recording and `spawn_capture_thread` for a
+  continuous chunk stream, both returning the device's raw samples for
+  `tinyvoice::audio` to process. Microphone permission is a `PermissionCheck`
+  the host passes in. Off by default because it links the platform audio stack.
 
 ## Use it as a TinyBus module
 

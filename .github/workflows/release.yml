@@ -36,6 +36,9 @@ jobs:
           fetch-depth: 0
           submodules: true
 
+      - name: Install ALSA development files
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

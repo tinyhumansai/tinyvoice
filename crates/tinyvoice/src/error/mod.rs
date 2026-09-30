@@ -48,6 +48,10 @@ pub enum Error {
     /// A global hotkey listener was already started in this process.
     #[error("the global hotkey listener can only be started once per process")]
     HotkeyListenerAlreadyStarted,
+
+    /// A microphone capture operation failed.
+    #[error("capture failed: {0}")]
+    Capture(String),
 }
 
 /// The result type returned by every fallible function in this crate.
