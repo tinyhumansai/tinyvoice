@@ -219,6 +219,34 @@ fn process_hotkey_event_push_falls_back_when_active_without_cached_trigger() {
 }
 
 #[test]
+fn process_hotkey_event_ignores_pointer_events_and_inactive_release() {
+    let combo = parse_hotkey("space").unwrap();
+    let is_active = AtomicBool::new(false);
+    let mut pressed = HashSet::new();
+
+    let pointer = process_hotkey_event(
+        EventType::Wheel {
+            delta_x: 0,
+            delta_y: 0,
+        },
+        &combo,
+        ActivationMode::Push,
+        &mut pressed,
+        &is_active,
+    );
+    let release = process_hotkey_event(
+        EventType::KeyRelease(Key::Space),
+        &combo,
+        ActivationMode::Push,
+        &mut pressed,
+        &is_active,
+    );
+
+    assert!(pointer.is_empty());
+    assert!(release.is_empty());
+}
+
+#[test]
 fn process_hotkey_event_tap_ignores_repeated_key_down_while_held() {
     let combo = combo();
     let is_active = AtomicBool::new(false);
