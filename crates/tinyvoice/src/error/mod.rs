@@ -32,6 +32,10 @@ pub enum Error {
         /// How many channels they were said to be interleaved across.
         channels: u16,
     },
+
+    /// A microphone capture operation failed.
+    #[error("capture failed: {0}")]
+    Capture(String),
 }
 
 /// The result type returned by every fallible function in this crate.

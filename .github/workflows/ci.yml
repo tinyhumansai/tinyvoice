@@ -21,6 +21,9 @@ jobs:
     name: Rust
     runs-on: ubuntu-latest
     steps:
+      - name: Install ALSA development files
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
+
       - uses: actions/checkout@v7
         with:
           # This job executes repository code (cargo build/test); don't persist
@@ -78,6 +81,9 @@ jobs:
     name: Docs
     runs-on: ubuntu-latest
     steps:
+      - name: Install ALSA development files
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
+
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
@@ -96,6 +102,9 @@ jobs:
     name: Minimum supported Rust version
     runs-on: ubuntu-latest
     steps:
+      - name: Install ALSA development files
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
+
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
