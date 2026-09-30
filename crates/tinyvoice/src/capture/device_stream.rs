@@ -17,6 +17,7 @@
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, StreamConfig};
+use std::sync::mpsc;
 
 use super::chunks::{CaptureFormat, RawChunk, forward};
 use super::{PermissionCheck, TARGET_SAMPLE_RATE};
@@ -59,7 +60,12 @@ pub(crate) fn capture_on_thread(
 
     let send_chunk = move |samples: Vec<f32>| forward(&tx, samples);
 
-    let err_fn = |e| log::warn!("{LOG_PREFIX} cpal stream error: {e}");
+    let (stream_error_tx, stream_error_rx) = mpsc::channel();
+    let err_fn = move |e| {
+        let message = format!("audio stream error: {e}");
+        log::warn!("{LOG_PREFIX} {message}");
+        let _ = stream_error_tx.send(message);
+    };
     let stream = match sample_format {
         SampleFormat::F32 => device.build_input_stream(
             &stream_config,
@@ -96,8 +102,13 @@ pub(crate) fn capture_on_thread(
     }));
     log::info!("{LOG_PREFIX} microphone stream live");
 
-    // Keep the stream (and thus this thread) alive for the process lifetime.
+    // Keep the stream alive until the device reports a terminal stream error.
+    // Returning drops the sender, allowing the consumer to observe channel closure.
     loop {
-        std::thread::sleep(std::time::Duration::from_secs(3600));
+        match stream_error_rx.recv_timeout(std::time::Duration::from_secs(3600)) {
+            Ok(error) => return Err(error),
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+        }
     }
 }

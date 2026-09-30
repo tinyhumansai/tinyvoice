@@ -263,7 +263,11 @@ pub(crate) fn record_on_thread(
     debug!("{LOG_PREFIX} stop flag detected, finalizing recording");
     drop(stream);
 
-    let samples = samples.lock().clone();
+    if let Some(err) = receive_stream_error(&stream_error_rx) {
+        return Err(err);
+    }
+
+    let samples = std::mem::take(&mut *samples.lock());
     if samples.is_empty() {
         warn!("{LOG_PREFIX} no audio samples captured");
         return Err("no audio samples captured".to_string());
