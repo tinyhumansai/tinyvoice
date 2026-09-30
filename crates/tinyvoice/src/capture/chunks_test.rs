@@ -85,3 +85,11 @@ fn a_thread_that_dies_before_reporting_is_named_as_such() {
         "always-on capture thread exited before signalling readiness"
     );
 }
+
+#[test]
+fn a_denied_permission_stops_the_stream_before_any_device_is_touched() {
+    let (tx, _rx) = tokio::sync::mpsc::channel(1);
+    let error = super::spawn_capture_thread(tx, || Err("microphone permission denied".to_string()))
+        .unwrap_err();
+    assert_eq!(error, "microphone permission denied");
+}
