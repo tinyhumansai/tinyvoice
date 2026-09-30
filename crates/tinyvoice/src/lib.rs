@@ -39,7 +39,8 @@
 //! - [`transcript`] — STT hallucination detection.
 //! - `hotkey` (cargo feature `hotkey`, off by default) — a system-wide
 //!   push-to-talk / toggle key listener on `rdev`, for hosts that gate
-//!   recording on a key.
+//!   recording on a key. This feature adds OS input-hook and runtime plumbing;
+//!   hosts can instead keep those concerns in their own runtime.
 //!
 //! # Example
 //!

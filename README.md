@@ -16,9 +16,9 @@ The split follows one rule, the same one `tinydocs` and `tinywallet` follow:
 **a crate owns what is identical for every host; the host owns what depends on
 its own runtime, config, or threat model.**
 
-So this crate is synchronous, I/O-free and runtime-free. It does not open a
-microphone, call an STT or TTS endpoint, own a hotkey, or know what a `Config`
-is.
+So the default crate build is synchronous, I/O-free and runtime-free. It does
+not open a microphone, call an STT or TTS endpoint, or know what a `Config` is.
+The optional `hotkey` feature adds a host-facing global keyboard listener.
 
 | Here | With the host |
 | --- | --- |
