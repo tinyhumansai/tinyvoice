@@ -50,6 +50,30 @@ async fn a_started_recording_yields_its_samples_once_stopped() {
     assert_eq!(raw.channels, 2);
 }
 
+#[test]
+fn dropping_a_recording_handle_signals_the_capture_thread_to_stop() {
+    let (stopped_tx, stopped_rx) = std::sync::mpsc::channel();
+    let handle = spawn_recording(Box::new(move |stop, setup| {
+        setup.send(Ok(())).unwrap();
+        while !stop.load(Ordering::SeqCst) {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        stopped_tx.send(()).unwrap();
+        Ok(RawRecording {
+            samples: Vec::new(),
+            source_rate: 48_000,
+            channels: 1,
+        })
+    }))
+    .unwrap();
+
+    drop(handle);
+
+    stopped_rx
+        .recv_timeout(std::time::Duration::from_secs(1))
+        .expect("dropping the handle should stop its capture thread");
+}
+
 #[tokio::test]
 async fn a_recording_that_captured_nothing_reports_why() {
     let handle = spawn_recording(Box::new(|stop, setup| {
