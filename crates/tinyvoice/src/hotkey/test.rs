@@ -5,6 +5,25 @@
 use super::*;
 use std::sync::atomic::AtomicBool;
 
+struct TestLogger;
+
+impl log::Log for TestLogger {
+    fn enabled(&self, _: &log::Metadata<'_>) -> bool {
+        true
+    }
+
+    fn log(&self, _: &log::Record<'_>) {}
+
+    fn flush(&self) {}
+}
+
+static TEST_LOGGER: TestLogger = TestLogger;
+
+fn enable_test_logging() {
+    let _ = log::set_logger(&TEST_LOGGER);
+    log::set_max_level(log::LevelFilter::Trace);
+}
+
 fn combo() -> HotkeyCombination {
     parse_hotkey("ctrl+space").expect("test hotkey")
 }
@@ -151,6 +170,7 @@ fn process_hotkey_event_push_repeat_does_not_release_while_held() {
 
 #[test]
 fn process_hotkey_event_push_releases_if_modifier_is_released_first() {
+    enable_test_logging();
     let combo = combo();
     let is_active = AtomicBool::new(true);
     let mut pressed = HashSet::from([Key::ControlLeft, Key::Space]);
@@ -220,6 +240,7 @@ fn process_hotkey_event_push_falls_back_when_active_without_cached_trigger() {
 
 #[test]
 fn process_hotkey_event_ignores_pointer_events_and_inactive_release() {
+    enable_test_logging();
     let combo = parse_hotkey("space").unwrap();
     let is_active = AtomicBool::new(false);
     let mut pressed = HashSet::new();
