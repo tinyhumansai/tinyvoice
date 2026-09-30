@@ -6,10 +6,15 @@ report="${2:-coverage.json}"
 workspace_root="$(pwd -P)/"
 source_root="${workspace_root}crates/"
 
+# `capture/device_*.rs` open a real audio device (`cpal`), which a CI runner does
+# not have, so they cannot be exercised there. Everything they depend on (the
+# recording handle, the sample cap, format conversion, config choice, chunk
+# forwarding) lives in sibling files that this gate does cover.
 cargo llvm-cov \
   --locked \
   --all-targets \
   --all-features \
+  --ignore-filename-regex 'capture/device_[a-z]+\.rs$' \
   --json \
   --output-path "$report"
 
