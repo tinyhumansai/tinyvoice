@@ -3,7 +3,7 @@
 use rdev::Key;
 
 /// Convert a string key name to an rdev Key.
-pub(super) fn string_to_key(s: &str) -> Result<Key, String> {
+pub(super) fn string_to_key(s: &str) -> crate::Result<Key> {
     match s.to_lowercase().as_str() {
         // Modifiers
         "ctrl" | "control" | "leftcontrol" => Ok(Key::ControlLeft),
@@ -90,6 +90,6 @@ pub(super) fn string_to_key(s: &str) -> Result<Key, String> {
         "8" => Ok(Key::Num8),
         "9" => Ok(Key::Num9),
 
-        other => Err(format!("unknown key: '{other}'")),
+        other => Err(crate::error::Error::UnknownHotkeyKey(other.to_owned())),
     }
 }

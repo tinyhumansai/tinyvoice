@@ -92,9 +92,9 @@ fn process_hotkey_event(
     match event_type {
         EventType::KeyPress(key) => {
             let is_trigger = key == hotkey.trigger;
-            pressed_keys.insert(key);
+            let is_new_press = pressed_keys.insert(key);
 
-            if !is_trigger {
+            if !is_trigger || !is_new_press {
                 return emitted;
             }
 
@@ -163,7 +163,7 @@ fn process_hotkey_event(
 ///
 /// Returns a message when the string has no segments or names a key this crate
 /// does not know.
-pub fn parse_hotkey(hotkey_str: &str) -> Result<HotkeyCombination, String> {
+pub fn parse_hotkey(hotkey_str: &str) -> crate::Result<HotkeyCombination> {
     let parts: Vec<&str> = hotkey_str
         .split('+')
         .map(str::trim)
@@ -171,7 +171,7 @@ pub fn parse_hotkey(hotkey_str: &str) -> Result<HotkeyCombination, String> {
         .collect();
 
     if parts.is_empty() {
-        return Err("hotkey string is empty".to_string());
+        return Err(crate::error::Error::EmptyHotkey);
     }
 
     let mut modifiers = HashSet::new();
@@ -186,7 +186,7 @@ pub fn parse_hotkey(hotkey_str: &str) -> Result<HotkeyCombination, String> {
         }
     }
 
-    let trigger = trigger.ok_or_else(|| "no trigger key specified".to_string())?;
+    let trigger = trigger.ok_or(crate::error::Error::EmptyHotkey)?;
 
     debug!("{LOG_PREFIX} parsed hotkey: modifiers={modifiers:?} trigger={trigger:?}");
 
@@ -204,7 +204,7 @@ pub fn parse_hotkey(hotkey_str: &str) -> Result<HotkeyCombination, String> {
 pub fn start_listener(
     hotkey: HotkeyCombination,
     mode: ActivationMode,
-) -> Result<(HotkeyListenerHandle, mpsc::UnboundedReceiver<HotkeyEvent>), String> {
+) -> crate::Result<(HotkeyListenerHandle, mpsc::UnboundedReceiver<HotkeyEvent>)> {
     let stop_flag = Arc::new(AtomicBool::new(false));
     let (tx, rx) = mpsc::unbounded_channel();
 
@@ -237,7 +237,7 @@ pub fn start_listener(
                 warn!("{LOG_PREFIX} rdev listen error: {e:?}");
             }
         })
-        .map_err(|e| format!("failed to spawn hotkey listener thread: {e}"))?;
+        .map_err(|e| crate::error::Error::HotkeyListenerSpawn(e.to_string()))?;
 
     Ok((
         HotkeyListenerHandle {

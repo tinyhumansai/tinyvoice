@@ -1,3 +1,5 @@
+//! Behavioral tests for hotkey parsing and activation events.
+
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use super::*;
@@ -116,7 +118,7 @@ fn process_hotkey_event_push_requires_modifier_then_releases() {
 }
 
 #[test]
-fn process_hotkey_event_push_second_press_is_release_fallback() {
+fn process_hotkey_event_push_repeat_does_not_release_while_held() {
     let combo = combo();
     let is_active = AtomicBool::new(false);
     let mut pressed = HashSet::from([Key::ControlLeft]);
@@ -137,11 +139,11 @@ fn process_hotkey_event_push_second_press_is_release_fallback() {
     );
 
     assert_eq!(first, vec![HotkeyEvent::Pressed]);
-    assert_eq!(second, vec![HotkeyEvent::Released]);
+    assert!(second.is_empty());
 }
 
 #[test]
-fn process_hotkey_event_tap_toggles_on_each_press() {
+fn process_hotkey_event_tap_ignores_repeated_key_down_while_held() {
     let combo = combo();
     let is_active = AtomicBool::new(false);
     let mut pressed = HashSet::from([Key::ControlLeft]);
@@ -162,5 +164,5 @@ fn process_hotkey_event_tap_toggles_on_each_press() {
     );
 
     assert_eq!(first, vec![HotkeyEvent::Pressed]);
-    assert_eq!(second, vec![HotkeyEvent::Released]);
+    assert!(second.is_empty());
 }

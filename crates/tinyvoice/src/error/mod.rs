@@ -32,6 +32,18 @@ pub enum Error {
         /// How many channels they were said to be interleaved across.
         channels: u16,
     },
+
+    /// A hotkey string did not contain a trigger key.
+    #[error("hotkey string is empty")]
+    EmptyHotkey,
+
+    /// A hotkey string named an unsupported key.
+    #[error("unknown hotkey key: '{0}'")]
+    UnknownHotkeyKey(String),
+
+    /// The operating-system hotkey listener thread could not be spawned.
+    #[error("failed to spawn hotkey listener thread: {0}")]
+    HotkeyListenerSpawn(String),
 }
 
 /// The result type returned by every fallible function in this crate.
