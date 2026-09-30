@@ -44,6 +44,10 @@ pub enum Error {
     /// The operating-system hotkey listener thread could not be spawned.
     #[error("failed to spawn hotkey listener thread: {0}")]
     HotkeyListenerSpawn(String),
+
+    /// A global hotkey listener was already started in this process.
+    #[error("the global hotkey listener can only be started once per process")]
+    HotkeyListenerAlreadyStarted,
 }
 
 /// The result type returned by every fallible function in this crate.

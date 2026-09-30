@@ -15,6 +15,7 @@ mod keys;
 
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use log::{debug, info, warn};
@@ -24,6 +25,7 @@ use rdev::{Event, EventType, listen};
 use tokio::sync::mpsc;
 
 const LOG_PREFIX: &str = "[voice_hotkey]";
+static LISTENER_STARTED: OnceLock<AtomicBool> = OnceLock::new();
 
 /// Activation mode for the voice hotkey.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -58,6 +60,8 @@ pub struct HotkeyCombination {
 #[derive(Debug)]
 pub struct HotkeyListenerHandle {
     stop_flag: Arc<AtomicBool>,
+    is_active: Arc<AtomicBool>,
+    event_sender: mpsc::UnboundedSender<HotkeyEvent>,
     _thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -70,6 +74,9 @@ impl HotkeyListenerHandle {
     /// stop flag merely causes the callback to discard all events.
     pub fn stop(&self) {
         self.stop_flag.store(true, Ordering::SeqCst);
+        if self.is_active.swap(false, Ordering::SeqCst) {
+            let _ = self.event_sender.send(HotkeyEvent::Released);
+        }
         info!("{LOG_PREFIX} hotkey listener signaled to skip events");
     }
 }
@@ -77,6 +84,9 @@ impl HotkeyListenerHandle {
 impl Drop for HotkeyListenerHandle {
     fn drop(&mut self) {
         self.stop_flag.store(true, Ordering::SeqCst);
+        if self.is_active.swap(false, Ordering::SeqCst) {
+            let _ = self.event_sender.send(HotkeyEvent::Released);
+        }
     }
 }
 
@@ -205,19 +215,26 @@ pub fn start_listener(
     hotkey: HotkeyCombination,
     mode: ActivationMode,
 ) -> crate::Result<(HotkeyListenerHandle, mpsc::UnboundedReceiver<HotkeyEvent>)> {
+    let listener_started = LISTENER_STARTED.get_or_init(|| AtomicBool::new(false));
+    listener_started
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .map_err(|_| crate::error::Error::HotkeyListenerAlreadyStarted)?;
+
     let stop_flag = Arc::new(AtomicBool::new(false));
     let (tx, rx) = mpsc::unbounded_channel();
+    let handle_tx = tx.clone();
 
     let stop_flag_clone = stop_flag.clone();
     let pressed_keys: Arc<Mutex<HashSet<Key>>> = Arc::new(Mutex::new(HashSet::new()));
     let is_active = Arc::new(AtomicBool::new(false));
+    let callback_is_active = is_active.clone();
 
     info!(
         "{LOG_PREFIX} starting hotkey listener, mode={mode:?}, trigger={:?}, modifiers={:?}",
         hotkey.trigger, hotkey.modifiers
     );
 
-    let thread = std::thread::Builder::new()
+    let thread = match std::thread::Builder::new()
         .name("voice-hotkey".into())
         .spawn(move || {
             let callback = move |event: Event| {
@@ -226,7 +243,13 @@ pub fn start_listener(
                 }
                 let emitted = {
                     let mut keys = pressed_keys.lock();
-                    process_hotkey_event(event.event_type, &hotkey, mode, &mut keys, &is_active)
+                    process_hotkey_event(
+                        event.event_type,
+                        &hotkey,
+                        mode,
+                        &mut keys,
+                        &callback_is_active,
+                    )
                 };
                 for event in emitted {
                     let _ = tx.send(event);
@@ -236,12 +259,19 @@ pub fn start_listener(
             if let Err(e) = listen(callback) {
                 warn!("{LOG_PREFIX} rdev listen error: {e:?}");
             }
-        })
-        .map_err(|e| crate::error::Error::HotkeyListenerSpawn(e.to_string()))?;
+        }) {
+        Ok(thread) => thread,
+        Err(error) => {
+            listener_started.store(false, Ordering::SeqCst);
+            return Err(crate::error::Error::HotkeyListenerSpawn(error.to_string()));
+        }
+    };
 
     Ok((
         HotkeyListenerHandle {
             stop_flag,
+            is_active,
+            event_sender: handle_tx,
             _thread: Some(thread),
         },
         rx,

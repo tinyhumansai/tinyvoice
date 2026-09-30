@@ -173,3 +173,34 @@ fn process_hotkey_event_tap_ignores_repeated_key_down_while_held() {
     assert_eq!(first, vec![HotkeyEvent::Pressed]);
     assert!(second.is_empty());
 }
+
+#[test]
+fn stop_emits_release_for_active_listener() {
+    let (event_sender, mut event_receiver) = mpsc::unbounded_channel();
+    let is_active = Arc::new(AtomicBool::new(true));
+    let handle = HotkeyListenerHandle {
+        stop_flag: Arc::new(AtomicBool::new(false)),
+        is_active,
+        event_sender,
+        _thread: None,
+    };
+
+    handle.stop();
+
+    assert_eq!(event_receiver.try_recv(), Ok(HotkeyEvent::Released));
+}
+
+#[test]
+fn drop_emits_release_for_active_listener() {
+    let (event_sender, mut event_receiver) = mpsc::unbounded_channel();
+    let handle = HotkeyListenerHandle {
+        stop_flag: Arc::new(AtomicBool::new(false)),
+        is_active: Arc::new(AtomicBool::new(true)),
+        event_sender,
+        _thread: None,
+    };
+
+    drop(handle);
+
+    assert_eq!(event_receiver.try_recv(), Ok(HotkeyEvent::Released));
+}
