@@ -58,12 +58,18 @@ impl RecordingHandle {
     ///
     /// The capture error if the recording itself failed (for example, no
     /// samples were captured), or a message if the capture task vanished.
-    pub async fn stop(self) -> Result<RawRecording, String> {
+    pub async fn stop(mut self) -> Result<RawRecording, String> {
         self.stop_flag.store(true, Ordering::SeqCst);
         debug!("{LOG_PREFIX} stop signal sent");
-        self.result_rx
+        (&mut self.result_rx)
             .await
             .map_err(|_| "recording task dropped before completing".to_string())?
+    }
+}
+
+impl Drop for RecordingHandle {
+    fn drop(&mut self) {
+        self.stop_flag.store(true, Ordering::SeqCst);
     }
 }
 
