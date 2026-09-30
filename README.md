@@ -16,13 +16,13 @@ The split follows one rule, the same one `tinydocs` and `tinywallet` follow:
 **a crate owns what is identical for every host; the host owns what depends on
 its own runtime, config, or threat model.**
 
-So this crate is synchronous, I/O-free and runtime-free. It does not open a
-microphone, call an STT or TTS endpoint, own a hotkey, or know what a `Config`
-is.
+So by default this crate is synchronous, I/O-free and runtime-free. It does
+not call an STT or TTS endpoint or know what a `Config` is; the off-by-default
+`capture` and `hotkey` features are the only parts that touch the machine.
 
 | Here | With the host |
 | --- | --- |
-| WAV framing, RMS, resampling, downmix, silence gate | Device capture (`cpal`) — a stream is `!Send` and needs the host's thread and permission model |
+| WAV framing, RMS, resampling, downmix, silence gate | Microphone permission (the optional `capture` feature takes it as a parameter) |
 | VAD segmentation | The capture loop that drives it |
 | Wake-word gate, intent routing | What to *do* with an intent |
 | Hallucination detection | The STT transport, credentials, and retry policy |
@@ -61,6 +61,11 @@ Run it: `cargo run -p tinyvoice --example basic`.
   toggle key listener built on `rdev` (`parse_hotkey`, `start_listener`,
   `ActivationMode`, `HotkeyEvent`). Off by default so the library, and the
   loadable module built from it, carry no OS input hook.
+- `capture` (off by default): `tinyvoice::capture`, microphone input on `cpal`:
+  `start_recording` for a one-shot recording and `spawn_capture_thread` for a
+  continuous chunk stream, both returning the device's raw samples for
+  `tinyvoice::audio` to process. Microphone permission is a `PermissionCheck`
+  the host passes in. Off by default because it links the platform audio stack.
 
 ## Use it as a TinyBus module
 

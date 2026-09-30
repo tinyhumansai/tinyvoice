@@ -12,9 +12,10 @@
 //! `tinywallet` follow: **a crate owns what is identical for every host; the
 //! host owns what depends on its own runtime, config, or threat model.**
 //!
-//! So this crate is synchronous, I/O-free and runtime-free. It does not open a
-//! microphone, call an STT or TTS endpoint, own a hotkey, or know what a
-//! `Config` is. Those are the host's:
+//! So by default this crate is synchronous, I/O-free and runtime-free. It does
+//! not call an STT or TTS endpoint, or know what a `Config` is; the off-by-default
+//! `capture` and `hotkey` features are the only parts that touch the machine (a
+//! microphone, a keyboard hook). Those are the host's:
 //!
 //! | Stays with the host | Why |
 //! | --- | --- |
