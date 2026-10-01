@@ -27,6 +27,7 @@
 )]
 
 #[cfg(test)]
+#[path = "mod_tests.rs"]
 mod test;
 
 use crate::{Error, Result};

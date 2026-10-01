@@ -43,5 +43,5 @@ pub(crate) fn find_best_config(
 }
 
 #[cfg(test)]
-#[path = "config_test.rs"]
+#[path = "config_tests.rs"]
 mod tests;

@@ -309,4 +309,5 @@ fn start_listener_with(
 }
 
 #[cfg(test)]
+#[path = "mod_tests.rs"]
 mod test;

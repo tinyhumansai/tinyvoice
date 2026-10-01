@@ -1,6 +1,7 @@
 //! The crate-wide error type.
 
 #[cfg(test)]
+#[path = "mod_tests.rs"]
 mod test;
 
 /// Why a `tinyvoice` operation could not produce a result.

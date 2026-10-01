@@ -16,5 +16,5 @@ pub(crate) fn u16_to_f32(data: &[u16]) -> Vec<f32> {
 }
 
 #[cfg(test)]
-#[path = "convert_test.rs"]
+#[path = "convert_tests.rs"]
 mod tests;

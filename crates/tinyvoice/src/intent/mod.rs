@@ -15,6 +15,7 @@
 //! one that declines merely costs a round trip.
 
 #[cfg(test)]
+#[path = "mod_tests.rs"]
 mod test;
 
 mod wake;

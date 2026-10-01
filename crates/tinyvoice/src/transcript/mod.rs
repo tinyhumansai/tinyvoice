@@ -26,6 +26,7 @@
 #![allow(clippy::cast_precision_loss)]
 
 #[cfg(test)]
+#[path = "mod_tests.rs"]
 mod test;
 
 use std::collections::HashMap;
