@@ -34,7 +34,7 @@ fn drive(seg: &mut VadSegmenter, rms: f32, frame_ms: u32, n: u32) -> Vec<VadEven
 #[test]
 fn silence_emits_nothing() {
     let mut seg = VadSegmenter::new(cfg());
-    assert!(drive(&mut seg, 0.0, 20, 50).is_empty());
+    assert_eq!(drive(&mut seg, 0.0, 20, 50).len(), 0);
     assert!(!seg.is_speaking());
 }
 
@@ -45,7 +45,7 @@ fn onset_then_hangover_emits_one_utterance() {
     assert_eq!(seg.push_frame(0.2, 20), Some(VadEvent::SpeechStart));
     assert!(seg.is_speaking());
     // 5 more voiced frames -> 120ms voiced total.
-    assert!(drive(&mut seg, 0.2, 20, 5).is_empty());
+    assert_eq!(drive(&mut seg, 0.2, 20, 5).len(), 0);
 
     // Silence accumulates; the hangover is 100ms, so frames 1-4 stay quiet.
     for _ in 0..4 {
@@ -104,7 +104,7 @@ fn mid_utterance_pause_does_not_split() {
     );
 
     // Speech resumes and the silence run resets.
-    assert!(drive(&mut seg, 0.2, 20, 3).is_empty());
+    assert_eq!(drive(&mut seg, 0.2, 20, 3).len(), 0);
     assert!(seg.is_speaking());
 }
 
