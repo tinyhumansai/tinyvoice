@@ -207,9 +207,9 @@ fn sustained_silence_is_dropped() {
     let mut g = gate();
     g.push(&[0.0f32; 50]);
     // Crosses the 100-sample threshold.
-    assert!(g.push(&[0.0f32; 60]).is_empty());
+    assert_eq!(g.push(&[0.0f32; 60]).len(), 0);
     assert!(g.is_gating());
-    assert!(g.push(&[0.0f32; 60]).is_empty());
+    assert_eq!(g.push(&[0.0f32; 60]).len(), 0);
 }
 
 #[test]

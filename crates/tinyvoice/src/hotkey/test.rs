@@ -108,7 +108,7 @@ fn process_hotkey_event_push_requires_modifier_then_releases() {
         &mut pressed,
         &is_active,
     );
-    assert!(no_emit.is_empty());
+    assert_eq!(no_emit.len(), 0);
     process_hotkey_event(
         EventType::KeyRelease(Key::Space),
         &combo,
@@ -165,7 +165,7 @@ fn process_hotkey_event_push_repeat_does_not_release_while_held() {
     );
 
     assert_eq!(first, vec![HotkeyEvent::Pressed]);
-    assert!(second.is_empty());
+    assert_eq!(second.len(), 0);
 }
 
 #[test]
@@ -263,8 +263,8 @@ fn process_hotkey_event_ignores_pointer_events_and_inactive_release() {
         &is_active,
     );
 
-    assert!(pointer.is_empty());
-    assert!(release.is_empty());
+    assert_eq!(pointer.len(), 0);
+    assert_eq!(release.len(), 0);
 }
 
 #[test]
@@ -289,7 +289,7 @@ fn process_hotkey_event_tap_ignores_repeated_key_down_while_held() {
     );
 
     assert_eq!(first, vec![HotkeyEvent::Pressed]);
-    assert!(second.is_empty());
+    assert_eq!(second.len(), 0);
 }
 
 #[test]
