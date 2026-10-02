@@ -31,7 +31,7 @@ use super::{PermissionCheck, TARGET_SAMPLE_RATE};
 
 const LOG_PREFIX: &str = "[voice_capture]";
 
-fn stream_error_callback(sender: Sender<String>) -> impl FnMut(cpal::StreamError) + Send + 'static {
+fn stream_error_callback(sender: Sender<String>) -> impl FnMut(cpal::Error) + Send + 'static {
     move |err| {
         let message = format!("audio stream error: {err}");
         warn!("{LOG_PREFIX} {message}");
@@ -113,7 +113,7 @@ pub(crate) fn record_on_thread(
             }
         }
     };
-    let source_sample_rate = config.sample_rate().0;
+    let source_sample_rate = config.sample_rate();
     let source_channels = config.channels() as usize;
 
     debug!(
@@ -181,7 +181,7 @@ pub(crate) fn record_on_thread(
             );
             match device.default_input_config() {
                 Ok(default_cfg) => {
-                    let sr = default_cfg.sample_rate().0;
+                    let sr = default_cfg.sample_rate();
                     let ch = default_cfg.channels() as usize;
                     let fmt = default_cfg.sample_format();
                     info!("{LOG_PREFIX} fallback config: rate={sr} channels={ch} format={fmt:?}");

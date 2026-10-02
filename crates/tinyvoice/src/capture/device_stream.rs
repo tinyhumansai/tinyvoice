@@ -47,7 +47,7 @@ pub(crate) fn capture_on_thread(
     let supported = device
         .default_input_config()
         .map_err(|e| format!("no default input config: {e}"))?;
-    let source_rate = supported.sample_rate().0;
+    let source_rate = supported.sample_rate();
     let channels = supported.channels();
     let sample_format = supported.sample_format();
     let stream_config: StreamConfig = supported.into();
