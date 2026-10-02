@@ -139,5 +139,5 @@ pub(crate) fn append_capped(buffer: &parking_lot::Mutex<Vec<f32>>, samples: &[f3
 }
 
 #[cfg(test)]
-#[path = "recording_test.rs"]
+#[path = "recording_tests.rs"]
 mod tests;

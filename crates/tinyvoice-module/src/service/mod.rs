@@ -1,6 +1,7 @@
 //! The bus interface, its setup, and the ABI v1 exports.
 
 #[cfg(test)]
+#[path = "mod_tests.rs"]
 mod test;
 
 use base64::Engine as _;
