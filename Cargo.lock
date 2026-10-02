@@ -834,7 +834,7 @@ dependencies = [
 
 [[package]]
 name = "tinyvoice"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "cpal",
  "log",
