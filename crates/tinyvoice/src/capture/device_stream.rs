@@ -71,13 +71,13 @@ pub(crate) fn capture_on_thread(
     };
     let stream = match sample_format {
         SampleFormat::F32 => device.build_input_stream(
-            &stream_config,
+            stream_config.clone(),
             move |data: &[f32], _| send_chunk(data.to_vec()),
             err_fn,
             None,
         ),
         SampleFormat::I16 => device.build_input_stream(
-            &stream_config,
+            stream_config.clone(),
             move |data: &[i16], _| {
                 send_chunk(data.iter().map(|&s| f32::from(s) / 32768.0).collect());
             },
@@ -85,7 +85,7 @@ pub(crate) fn capture_on_thread(
             None,
         ),
         SampleFormat::U16 => device.build_input_stream(
-            &stream_config,
+            stream_config.clone(),
             move |data: &[u16], _| {
                 send_chunk(data.iter().map(|&s| f32::from(s) / 32768.0 - 1.0).collect());
             },
