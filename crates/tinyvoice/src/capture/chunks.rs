@@ -111,5 +111,5 @@ pub(crate) fn forward(tx: &tokio::sync::mpsc::Sender<RawChunk>, samples: Vec<f32
 }
 
 #[cfg(test)]
-#[path = "chunks_test.rs"]
+#[path = "chunks_tests.rs"]
 mod tests;

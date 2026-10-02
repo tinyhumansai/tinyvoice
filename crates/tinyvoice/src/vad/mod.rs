@@ -8,6 +8,7 @@
 //! be both wasted memory and a second thing to keep in sync.
 
 #[cfg(test)]
+#[path = "mod_tests.rs"]
 mod test;
 
 pub use tinyvoice_bus::vad::{VadConfig, VadEvent};

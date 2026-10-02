@@ -22,5 +22,6 @@ pub use transcript::Mode;
 pub use vad::{IndexedVadEvent, VadConfig, VadEvent};
 
 #[cfg(test)]
+#[path = "lib_tests.rs"]
 mod test;
 pub use version::{CONTRACT_VERSION, is_compatible};
