@@ -72,7 +72,10 @@ pub(crate) fn record_on_thread(
         }
     };
 
-    let device_name = device.name().unwrap_or_else(|_| "<unknown>".into());
+    let device_name = device
+        .description()
+        .map(|d| d.name().to_string())
+        .unwrap_or_else(|_| "<unknown>".into());
     info!("{LOG_PREFIX} using input device: {device_name}");
 
     let config = match device.supported_input_configs() {
@@ -134,7 +137,7 @@ pub(crate) fn record_on_thread(
         match sample_format {
             SampleFormat::F32 => device
                 .build_input_stream(
-                    &stream_config,
+                    stream_config.clone(),
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
                         append_capped(&samples_writer, data);
                     },
@@ -144,7 +147,7 @@ pub(crate) fn record_on_thread(
                 .map_err(|e| format!("failed to build f32 input stream: {e}")),
             SampleFormat::I16 => device
                 .build_input_stream(
-                    &stream_config,
+                    stream_config.clone(),
                     move |data: &[i16], _: &cpal::InputCallbackInfo| {
                         append_capped(&samples_writer, &i16_to_f32(data));
                     },
@@ -154,7 +157,7 @@ pub(crate) fn record_on_thread(
                 .map_err(|e| format!("failed to build i16 input stream: {e}")),
             SampleFormat::U16 => device
                 .build_input_stream(
-                    &stream_config,
+                    stream_config.clone(),
                     move |data: &[u16], _: &cpal::InputCallbackInfo| {
                         append_capped(&samples_writer, &u16_to_f32(data));
                     },
@@ -190,7 +193,7 @@ pub(crate) fn record_on_thread(
                     let fallback_stream = match fmt {
                         SampleFormat::F32 => device
                             .build_input_stream(
-                                &sc,
+                                sc.clone(),
                                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                                     append_capped(&sw, data);
                                 },
@@ -200,7 +203,7 @@ pub(crate) fn record_on_thread(
                             .map_err(|e| format!("fallback f32 stream failed: {e}")),
                         SampleFormat::I16 => device
                             .build_input_stream(
-                                &sc,
+                                sc.clone(),
                                 move |data: &[i16], _: &cpal::InputCallbackInfo| {
                                     append_capped(&sw, &i16_to_f32(data));
                                 },
@@ -210,7 +213,7 @@ pub(crate) fn record_on_thread(
                             .map_err(|e| format!("fallback i16 stream failed: {e}")),
                         SampleFormat::U16 => device
                             .build_input_stream(
-                                &sc,
+                                sc.clone(),
                                 move |data: &[u16], _: &cpal::InputCallbackInfo| {
                                     append_capped(&sw, &u16_to_f32(data));
                                 },
@@ -298,7 +301,9 @@ pub fn list_input_devices() -> crate::Result<Vec<String>> {
         .input_devices()
         .map_err(|e| crate::Error::Capture(format!("failed to enumerate input devices: {e}")))?;
 
-    let names: Vec<String> = devices.filter_map(|d| d.name().ok()).collect();
+    let names: Vec<String> = devices
+        .filter_map(|d| d.description().ok().map(|desc| desc.name().to_string()))
+        .collect();
 
     debug!("{LOG_PREFIX} found {} input devices", names.len());
     Ok(names)
