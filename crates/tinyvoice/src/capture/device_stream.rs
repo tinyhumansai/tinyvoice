@@ -43,11 +43,13 @@ pub(crate) fn capture_on_thread(
     let device = host
         .default_input_device()
         .ok_or_else(|| "no default audio input device".to_string())?;
-    let device_name = device.name().unwrap_or_else(|e| format!("<unknown: {e}>"));
+    let device_name = device
+        .description()
+        .map_or_else(|e| format!("<unknown: {e}>"), |d| d.name().to_string());
     let supported = device
         .default_input_config()
         .map_err(|e| format!("no default input config: {e}"))?;
-    let source_rate = supported.sample_rate().0;
+    let source_rate = supported.sample_rate();
     let channels = supported.channels();
     let sample_format = supported.sample_format();
     let stream_config: StreamConfig = supported.into();
@@ -68,13 +70,13 @@ pub(crate) fn capture_on_thread(
     };
     let stream = match sample_format {
         SampleFormat::F32 => device.build_input_stream(
-            &stream_config,
+            stream_config,
             move |data: &[f32], _| send_chunk(data.to_vec()),
             err_fn,
             None,
         ),
         SampleFormat::I16 => device.build_input_stream(
-            &stream_config,
+            stream_config,
             move |data: &[i16], _| {
                 send_chunk(data.iter().map(|&s| f32::from(s) / 32768.0).collect());
             },
@@ -82,7 +84,7 @@ pub(crate) fn capture_on_thread(
             None,
         ),
         SampleFormat::U16 => device.build_input_stream(
-            &stream_config,
+            stream_config,
             move |data: &[u16], _| {
                 send_chunk(data.iter().map(|&s| f32::from(s) / 32768.0 - 1.0).collect());
             },

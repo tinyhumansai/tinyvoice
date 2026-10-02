@@ -1,6 +1,6 @@
 //! Choosing an input configuration.
 
-use cpal::{SampleRate, SupportedStreamConfig, SupportedStreamConfigRange};
+use cpal::{SupportedStreamConfig, SupportedStreamConfigRange};
 
 use super::TARGET_SAMPLE_RATE;
 
@@ -20,8 +20,8 @@ pub(crate) fn find_best_config(
     }
 
     let has_target = |range: &SupportedStreamConfigRange| {
-        range.min_sample_rate().0 <= TARGET_SAMPLE_RATE
-            && range.max_sample_rate().0 >= TARGET_SAMPLE_RATE
+        range.min_sample_rate() <= TARGET_SAMPLE_RATE
+            && range.max_sample_rate() >= TARGET_SAMPLE_RATE
     };
 
     // Sort: prefer configs whose range includes 16kHz, then by fewer channels.
@@ -33,7 +33,7 @@ pub(crate) fn find_best_config(
 
     let best = &configs_vec[0];
     let rate = if has_target(best) {
-        SampleRate(TARGET_SAMPLE_RATE)
+        TARGET_SAMPLE_RATE
     } else {
         // Use the maximum supported rate and resample later.
         best.max_sample_rate()
