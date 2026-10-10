@@ -581,7 +581,7 @@ fn native_reader_eof_after_down_returns_inactive_reset_snapshot() {
 }
 
 #[test]
-fn tap_mode_repeats_toggle_without_changing_activation_alias_semantics() {
+fn tap_mode_ignores_repeated_down_and_toggles_on_fresh_down() {
     let (hotkeys, handle, generation) = started(ActivationMode::Tap);
     assert!(feed(&hotkeys, &handle, generation, &[(1, HostKeyFact::Down)]).active);
     assert!(feed(&hotkeys, &handle, generation, &[(2, HostKeyFact::Down)]).active);
