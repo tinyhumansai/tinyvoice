@@ -169,6 +169,22 @@ fn host_source_accepts_only_the_function_key_aliases() {
 }
 
 #[test]
+fn terminal_hotkey_state_is_rechecked_when_committing_a_reservation() {
+    let hotkeys = Hotkeys::default();
+    hotkeys.closed.store(true, Ordering::SeqCst);
+
+    assert_eq!(
+        hotkeys.reserve_validated(HotkeyRequest {
+            key: "Fn".into(),
+            mode: ActivationMode::Push,
+            source: HotkeySource::Host,
+        }),
+        Err(HotkeyError::Closed)
+    );
+    assert!(hotkeys.leases.lock().unwrap().is_empty());
+}
+
+#[test]
 fn reservations_validate_keys_and_closed_leases_before_native_start() {
     let hotkeys = Hotkeys::default();
     for key in [String::new(), "x".repeat(MAX_KEY_BYTES + 1)] {
@@ -356,6 +372,82 @@ fn sequence_gap_resets_push_state_until_a_fresh_release() {
     assert!(!feed(&hotkeys, &handle, generation, &[(4, HostKeyFact::Down)]).active);
     assert!(!feed(&hotkeys, &handle, generation, &[(5, HostKeyFact::Up)]).active);
     assert!(feed(&hotkeys, &handle, generation, &[(6, HostKeyFact::Down)]).active);
+}
+
+#[test]
+fn retrying_a_rejected_sequence_gap_replays_the_error() {
+    let (hotkeys, handle, generation) = started(ActivationMode::Push);
+    feed(&hotkeys, &handle, generation, &[(1, HostKeyFact::Down)]);
+    let gap = HotkeyFeedRequest {
+        handle: handle.clone(),
+        generation,
+        facts: vec![SequencedHostFact {
+            sequence: 3,
+            fact: HostKeyFact::Down,
+        }],
+        overflow: false,
+    };
+
+    assert_eq!(hotkeys.feed(&gap), Err(HotkeyError::SequenceGap));
+    assert_eq!(hotkeys.feed(&gap), Err(HotkeyError::SequenceGap));
+}
+
+#[test]
+fn late_overflow_feed_does_not_rewind_source_sequence() {
+    let (hotkeys, handle, generation) = started(ActivationMode::Tap);
+    feed(
+        &hotkeys,
+        &handle,
+        generation,
+        &[(1, HostKeyFact::Down), (2, HostKeyFact::Up)],
+    );
+    let overflow = HotkeyFeedRequest {
+        handle: handle.clone(),
+        generation,
+        facts: vec![SequencedHostFact {
+            sequence: 1,
+            fact: HostKeyFact::Up,
+        }],
+        overflow: true,
+    };
+    hotkeys.feed(&overflow).unwrap();
+
+    assert!(feed(&hotkeys, &handle, generation, &[(3, HostKeyFact::Up)]).continuity_lost);
+}
+
+#[test]
+fn replay_batches_are_limited_to_sixty_four_events() {
+    let (hotkeys, handle, generation) = started(ActivationMode::Push);
+    let facts: Vec<_> = (1..=256)
+        .map(|sequence| {
+            (
+                sequence,
+                if sequence % 2 == 1 {
+                    HostKeyFact::Down
+                } else {
+                    HostKeyFact::Up
+                },
+            )
+        })
+        .collect();
+    for batch in facts.chunks(MAX_FEED_FACTS) {
+        feed(&hotkeys, &handle, generation, batch);
+    }
+
+    let first = hotkeys
+        .read(&HotkeyReadRequest {
+            handle: handle.clone(),
+            acknowledged_batch: None,
+        })
+        .unwrap();
+    assert_eq!(first.events.len(), 64);
+    let second = hotkeys
+        .read(&HotkeyReadRequest {
+            handle,
+            acknowledged_batch: Some(first.batch),
+        })
+        .unwrap();
+    assert_eq!(second.events.len(), 64);
 }
 
 #[test]
@@ -575,6 +667,91 @@ impl native::Backend for BlockingBackend {
             Box::new(EndedReaderOwner),
         ))
     }
+}
+
+#[derive(Debug)]
+struct LockProbeBackend {
+    hotkeys: std::sync::Mutex<std::sync::Weak<Hotkeys>>,
+    lock_was_free: std::sync::mpsc::SyncSender<bool>,
+}
+
+impl native::Backend for LockProbeBackend {
+    fn start(&self, _request: &HotkeyRequest) -> Result<native::NativeListener, HotkeyError> {
+        let lock_was_free = self
+            .hotkeys
+            .lock()
+            .unwrap()
+            .upgrade()
+            .is_some_and(|hotkeys| hotkeys.leases.try_lock().is_ok());
+        let _ = self.lock_was_free.send(lock_was_free);
+        let (sender, events) = std::sync::mpsc::sync_channel(8);
+        drop(sender);
+        Ok(native::NativeListener::new(
+            events,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            Box::new(EndedReaderOwner),
+        ))
+    }
+}
+
+#[test]
+fn native_start_does_not_hold_the_lease_lock() {
+    let (checked_tx, checked_rx) = std::sync::mpsc::sync_channel(1);
+    let backend = Arc::new(LockProbeBackend {
+        hotkeys: std::sync::Mutex::new(std::sync::Weak::new()),
+        lock_was_free: checked_tx,
+    });
+    let hotkeys = Arc::new(Hotkeys::with_backend(backend.clone()));
+    *backend.hotkeys.lock().unwrap() = Arc::downgrade(&hotkeys);
+    let handle = hotkeys
+        .reserve(HotkeyReserveRequest {
+            request: HotkeyRequest {
+                key: "ctrl+space".into(),
+                mode: ActivationMode::Push,
+                source: HotkeySource::Native,
+            },
+        })
+        .unwrap();
+    let start_hotkeys = hotkeys.clone();
+    let start = std::thread::spawn(move || start_hotkeys.start(&HotkeyHandleRequest { handle }));
+
+    assert!(checked_rx.recv().unwrap());
+    assert_eq!(start.join().unwrap().unwrap().state, HotkeyState::Running);
+}
+
+#[test]
+fn shutdown_cancels_a_native_start_that_has_not_published() {
+    let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+    let starts = Arc::new(AtomicUsize::new(0));
+    let hotkeys = Arc::new(Hotkeys::with_backend(Arc::new(BlockingBackend {
+        entered: entered_tx,
+        release: std::sync::Mutex::new(release_rx),
+        starts,
+    })));
+    let handle = hotkeys
+        .reserve(HotkeyReserveRequest {
+            request: HotkeyRequest {
+                key: "ctrl+space".into(),
+                mode: ActivationMode::Push,
+                source: HotkeySource::Native,
+            },
+        })
+        .unwrap();
+    let start_hotkeys = hotkeys.clone();
+    let start = std::thread::spawn(move || start_hotkeys.start(&HotkeyHandleRequest { handle }));
+    entered_rx.recv().unwrap();
+
+    let shutdown_hotkeys = hotkeys.clone();
+    let shutdown = std::thread::spawn(move || shutdown_hotkeys.shutdown());
+    while !hotkeys.closed.load(Ordering::SeqCst) {
+        std::thread::yield_now();
+    }
+    release_tx.send(()).unwrap();
+
+    assert_eq!(start.join().unwrap(), Err(HotkeyError::Closed));
+    shutdown.join().unwrap().unwrap();
 }
 
 #[tokio::test]
