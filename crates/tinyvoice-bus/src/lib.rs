@@ -11,12 +11,14 @@
 //! the adapter; and the root `tinyvoice` crate remains host-agnostic.
 
 pub mod capture;
+pub mod hotkey;
 pub mod intent;
 pub mod names;
 pub mod transcript;
 pub mod vad;
 pub mod version;
 
+pub use hotkey::*;
 pub use intent::VoiceIntent;
 pub use names::{BUS_NAME, METHODS, OBJECT_PATH};
 pub use transcript::Mode;

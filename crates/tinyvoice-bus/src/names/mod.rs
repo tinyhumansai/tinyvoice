@@ -8,6 +8,18 @@ pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyvoice/Voice";
 
 /// One constant per member of [`BUS_NAME`].
 pub mod methods {
+    /// Reserves a hotkey lease before native startup.
+    pub const HOTKEY_RESERVE: &str = "HotkeyReserve";
+    /// Starts a reserved hotkey listener idempotently.
+    pub const HOTKEY_START: &str = "HotkeyStart";
+    /// Reads a replayable activation batch.
+    pub const HOTKEY_READ: &str = "HotkeyRead";
+    /// Feeds generic host-owned key facts.
+    pub const HOTKEY_FEED: &str = "HotkeyFeed";
+    /// Stops a listener after native cleanup and join.
+    pub const HOTKEY_STOP: &str = "HotkeyStop";
+    /// Closes admission and joins every listener.
+    pub const HOTKEY_SHUTDOWN: &str = "HotkeyShutdown";
     /// Close capture and await pending native cleanup.
     pub const CAPTURE_SHUTDOWN: &str = "CaptureShutdown";
     /// Reserve an opaque cancellation handle before native startup.
@@ -77,6 +89,12 @@ pub const METHODS: &[&str] = &[
     methods::ENCODE_WAV_PCM16,
     methods::EXTRACT_COMMAND,
     methods::FRAME_ENERGIES,
+    methods::HOTKEY_FEED,
+    methods::HOTKEY_READ,
+    methods::HOTKEY_RESERVE,
+    methods::HOTKEY_SHUTDOWN,
+    methods::HOTKEY_START,
+    methods::HOTKEY_STOP,
     methods::IS_HALLUCINATED,
     methods::LIST_INPUT_DEVICES,
     methods::PREPARE_CAPTURE,
