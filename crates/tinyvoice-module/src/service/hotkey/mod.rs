@@ -141,42 +141,49 @@ impl Hotkeys {
             .starts_in_progress
             .lock()
             .map_err(|_| HotkeyError::Closed)?;
-        let mut leases = self.leases.lock().map_err(|_| HotkeyError::Closed)?;
-        if leases.get(&request.handle).is_some_and(|lease| {
-            lease.state == HotkeyState::Reserved && lease.created.elapsed() >= RESERVATION_TTL
-        }) {
-            leases.remove(&request.handle);
-            return Err(HotkeyError::UnknownHandle);
-        }
-        let lease = leases
-            .get_mut(&request.handle)
-            .ok_or(HotkeyError::UnknownHandle)?;
-        if lease.state == HotkeyState::Running {
+        loop {
+            let mut leases = self.leases.lock().map_err(|_| HotkeyError::Closed)?;
+            if leases.get(&request.handle).is_some_and(|lease| {
+                lease.state == HotkeyState::Reserved && lease.created.elapsed() >= RESERVATION_TTL
+            }) {
+                leases.remove(&request.handle);
+                return Err(HotkeyError::UnknownHandle);
+            }
+            let lease = leases
+                .get_mut(&request.handle)
+                .ok_or(HotkeyError::UnknownHandle)?;
+            if lease.state == HotkeyState::Running {
+                return Ok(status(lease));
+            }
+            if lease.state == HotkeyState::Starting {
+                drop(leases);
+                starts = self
+                    .start_changed
+                    .wait(starts)
+                    .map_err(|_| HotkeyError::Closed)?;
+                continue;
+            }
+            if lease.state != HotkeyState::Reserved || self.closed.load(Ordering::SeqCst) {
+                return Err(HotkeyError::Closed);
+            }
+            let generation = self
+                .next_generation
+                .fetch_add(1, Ordering::SeqCst)
+                .checked_add(1)
+                .ok_or(HotkeyError::LimitExceeded)?;
+            lease.generation = Some(generation);
+            if lease.request.source == HotkeySource::Native {
+                lease.state = HotkeyState::Starting;
+                let native_request = lease.request.clone();
+                *starts += 1;
+                drop(leases);
+                drop(starts);
+                let result = self.backend.start(&native_request);
+                return self.finish_native_start(&request.handle, generation, result);
+            }
+            lease.state = HotkeyState::Running;
             return Ok(status(lease));
         }
-        if lease.state != HotkeyState::Reserved {
-            return Err(HotkeyError::Closed);
-        }
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(HotkeyError::Closed);
-        }
-        let generation = self
-            .next_generation
-            .fetch_add(1, Ordering::SeqCst)
-            .checked_add(1)
-            .ok_or(HotkeyError::LimitExceeded)?;
-        lease.generation = Some(generation);
-        if lease.request.source == HotkeySource::Native {
-            lease.state = HotkeyState::Starting;
-            let native_request = lease.request.clone();
-            *starts += 1;
-            drop(leases);
-            drop(starts);
-            let result = self.backend.start(&native_request);
-            return self.finish_native_start(&request.handle, generation, result);
-        }
-        lease.state = HotkeyState::Running;
-        Ok(status(lease))
     }
 
     fn finish_native_start(
