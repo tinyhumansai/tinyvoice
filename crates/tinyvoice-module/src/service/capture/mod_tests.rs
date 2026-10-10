@@ -35,6 +35,27 @@ impl Backend for Fixture {
             Ok(vec!["fixture".into()])
         }
     }
+    fn stream(&self) -> Result<(tinyvoice_bus::capture::CaptureFormat, Box<dyn Stream>), String> {
+        if self.fail {
+            return Err("fixture setup failure".into());
+        }
+        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        tx.try_send(tinyvoice::capture::RawChunk {
+            samples: vec![0.25; 16],
+        })
+        .map_err(|error| error.to_string())?;
+        Ok((
+            tinyvoice_bus::capture::CaptureFormat {
+                source_rate: 16_000,
+                channels: 1,
+            },
+            Box::new(StreamFixture {
+                rx,
+                drops: self.drops.clone(),
+                fail_stop: false,
+            }),
+        ))
+    }
     fn start(&self) -> Result<Box<dyn Recording>, String> {
         self.starts.fetch_add(1, Ordering::SeqCst);
         if self.fail {
@@ -284,5 +305,175 @@ async fn preparing_with_a_poisoned_output_table_releases_the_recording() -> Capt
     ));
     let restarted = capture.start(MicrophonePermission::Granted)?;
     capture.cancel(&restarted).await?;
+    Ok(())
+}
+
+#[derive(Debug)]
+struct StreamFixture {
+    fail_stop: bool,
+    rx: tokio::sync::mpsc::Receiver<tinyvoice::capture::RawChunk>,
+    drops: Arc<AtomicUsize>,
+}
+impl Drop for StreamFixture {
+    fn drop(&mut self) {
+        self.drops.fetch_add(1, Ordering::SeqCst);
+    }
+}
+impl Stream for StreamFixture {
+    fn poll(&mut self, max_chunks: usize) -> CaptureResult<CaptureBatch> {
+        Ok(poll_chunks(&mut self.rx, max_chunks))
+    }
+    fn stop(self: Box<Self>) -> StreamFuture {
+        Box::pin(async move {
+            let fail = self.fail_stop;
+            drop(self);
+            if fail {
+                Err("fixture terminal failure".into())
+            } else {
+                Ok(())
+            }
+        })
+    }
+}
+#[tokio::test]
+async fn continuous_capture_is_exclusive_drains_ordered_chunks_and_stops() -> CaptureResult<()> {
+    let manager = fixture_capture();
+    assert_eq!(
+        manager.stream_start(MicrophonePermission::Denied).err(),
+        Some(CaptureError::PermissionDenied)
+    );
+    let stream = manager.stream_start(MicrophonePermission::Granted)?;
+    assert_eq!(
+        manager.start(MicrophonePermission::Granted).err(),
+        Some(CaptureError::Busy)
+    );
+    assert_eq!(
+        manager.stream_start(MicrophonePermission::Granted).err(),
+        Some(CaptureError::Busy)
+    );
+    assert_eq!(
+        manager
+            .stream_poll(&CapturePollRequest {
+                handle: stream.handle.clone(),
+                max_chunks: 3
+            })
+            .err(),
+        Some(CaptureError::LimitExceeded)
+    );
+    let batch = manager.stream_poll(&CapturePollRequest {
+        handle: stream.handle.clone(),
+        max_chunks: 2,
+    })?;
+    assert_eq!(batch.chunks[0].samples, vec![0.25; 16]);
+    assert!(batch.closed);
+    manager.stream_stop(&stream.handle).await?;
+    assert_eq!(
+        manager.stream_stop(&stream.handle).await.err(),
+        Some(CaptureError::UnknownHandle)
+    );
+    assert_eq!(
+        manager
+            .stream_poll(&CapturePollRequest {
+                handle: stream.handle,
+                max_chunks: 1
+            })
+            .err(),
+        Some(CaptureError::UnknownHandle)
+    );
+    let stream = manager.stream_start(MicrophonePermission::Granted)?;
+    manager.stream_stop(&stream.handle).await?;
+    Ok(())
+}
+#[test]
+fn chunk_poll_preserves_order_and_limits_batch_size() -> Result<(), Box<dyn std::error::Error>> {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+    for i in [1.0, 2.0, 3.0] {
+        tx.try_send(tinyvoice::capture::RawChunk { samples: vec![i] })?;
+    }
+    let batch = poll_chunks(&mut rx, 2);
+    assert_eq!(batch.chunks.len(), 2);
+    assert_eq!(batch.chunks[1].samples, vec![2.0]);
+    assert!(!batch.closed);
+    assert_eq!(poll_chunks(&mut rx, 1).chunks[0].samples, vec![3.0]);
+    assert!(poll_chunks(&mut rx, 2).chunks.is_empty());
+    drop(tx);
+    assert!(poll_chunks(&mut rx, 2).closed);
+    Ok(())
+}
+
+#[tokio::test]
+async fn failed_stream_shutdown_releases_device_capacity() -> CaptureResult<()> {
+    let (capture, backend) = fixture(false);
+    let handle = CaptureHandle("failing stream".into());
+    let (_tx, rx) = tokio::sync::mpsc::channel(8);
+    capture.busy.store(true, Ordering::SeqCst);
+    capture
+        .streams
+        .lock()
+        .map_err(|_| CaptureError::Device("fixture lock".into()))?
+        .insert(
+            handle.clone(),
+            StreamLease {
+                stream: Box::new(StreamFixture {
+                    rx,
+                    drops: backend.drops.clone(),
+                    fail_stop: true,
+                }),
+                busy: BusyGuard(capture.busy.clone()),
+            },
+        );
+    assert_eq!(
+        capture.stream_stop(&handle).await,
+        Err(CaptureError::Device("fixture terminal failure".into()))
+    );
+    assert_eq!(backend.drops.load(Ordering::SeqCst), 1);
+    let stream = capture.stream_start(MicrophonePermission::Granted)?;
+    capture.stream_stop(&stream.handle).await?;
+    Ok(())
+}
+
+#[test]
+fn dropping_the_manager_releases_its_stream_and_failed_setup_releases_capacity() -> CaptureResult<()>
+{
+    let (capture, backend) = fixture(false);
+    let _stream = capture.stream_start(MicrophonePermission::Granted)?;
+    drop(capture);
+    assert_eq!(backend.drops.load(Ordering::SeqCst), 1);
+    let (capture, _) = fixture(true);
+    for _ in 0..2 {
+        assert_eq!(
+            capture.stream_start(MicrophonePermission::Granted).err(),
+            Some(CaptureError::Device("fixture setup failure".into()))
+        );
+        assert!(!capture.busy.load(Ordering::SeqCst));
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn poisoned_stream_state_fails_closed_and_drops_unregistered_capture() -> CaptureResult<()> {
+    let (capture, backend) = fixture(false);
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _guard = capture.streams.lock();
+        std::panic::resume_unwind(Box::new("fixture poison"));
+    }));
+    let handle = CaptureHandle("unknown".into());
+    assert!(matches!(
+        capture.stream_start(MicrophonePermission::Granted),
+        Err(CaptureError::Device(_))
+    ));
+    assert_eq!(backend.drops.load(Ordering::SeqCst), 1);
+    assert!(!capture.busy.load(Ordering::SeqCst));
+    assert!(matches!(
+        capture.stream_poll(&CapturePollRequest {
+            handle: handle.clone(),
+            max_chunks: 1
+        }),
+        Err(CaptureError::Device(_))
+    ));
+    assert!(matches!(
+        capture.stream_stop(&handle).await,
+        Err(CaptureError::Device(_))
+    ));
     Ok(())
 }

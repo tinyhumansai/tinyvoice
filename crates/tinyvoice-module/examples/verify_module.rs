@@ -79,6 +79,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err(io::Error::other("module did not enforce permission decision").into());
     }
 
+    let denied: tinyvoice_bus::capture::CaptureResult<tinyvoice_bus::capture::CaptureStream> =
+        proxy
+            .call(
+                tinyvoice_bus::names::methods::CAPTURE_START,
+                (tinyvoice_bus::capture::RecordingStartRequest::default(),),
+            )
+            .await?;
+    if !matches!(
+        denied,
+        Err(tinyvoice_bus::capture::CaptureError::PermissionDenied)
+    ) {
+        return Err(
+            std::io::Error::other("continuous capture did not refuse missing permission").into(),
+        );
+    }
+
     println!(
         "verified {} as TinyBus module `{}`",
         module.display(),

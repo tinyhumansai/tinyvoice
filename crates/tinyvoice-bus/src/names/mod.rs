@@ -8,6 +8,12 @@ pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyvoice/Voice";
 
 /// One constant per member of [`BUS_NAME`].
 pub mod methods {
+    /// Start native continuous capture.
+    pub const CAPTURE_START: &str = "CaptureStart";
+    /// Read a bounded native chunk batch.
+    pub const CAPTURE_POLL: &str = "CapturePoll";
+    /// Stop native continuous capture and release its lease.
+    pub const CAPTURE_STOP: &str = "CaptureStop";
     /// Routes a wake-word-stripped transcript.
     pub const ROUTE: &str = "Route";
     /// Removes a leading wake word from a transcript.
@@ -59,6 +65,9 @@ pub mod methods {
 
 /// Every member of [`BUS_NAME`], in the interface's sorted dispatch order.
 pub const METHODS: &[&str] = &[
+    methods::CAPTURE_POLL,
+    methods::CAPTURE_START,
+    methods::CAPTURE_STOP,
     methods::ENCODE_WAV,
     methods::ENCODE_WAV_PCM16,
     methods::EXTRACT_COMMAND,

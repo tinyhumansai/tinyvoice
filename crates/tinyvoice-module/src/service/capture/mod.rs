@@ -1,4 +1,4 @@
-//! Native recording ownership and bounded prepared audio outputs.
+//! Native recording/stream ownership and bounded prepared audio outputs.
 use super::BASE64;
 use base64::Engine as _;
 use std::collections::HashMap;
@@ -8,13 +8,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tinyvoice::capture::RawRecording;
 use tinyvoice_bus::capture::{
-    AudioOutput, CaptureError, CaptureHandle, CaptureResult, MicrophonePermission,
-    ReadAudioRequest, RecordingFinishRequest,
+    AudioOutput, CaptureBatch, CaptureError, CaptureHandle, CapturePollRequest, CaptureResult,
+    CaptureStream, MicrophonePermission, ReadAudioRequest, RecordingFinishRequest,
 };
 
 const MAX_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_OUTPUTS: usize = 4;
 const MAX_READ_BYTES: usize = 256 * 1024;
+type StreamFuture = Pin<Box<dyn Future<Output = Result<(), String>> + Send>>;
+pub(super) trait Stream: std::fmt::Debug + Send {
+    fn poll(&mut self, max_chunks: usize) -> CaptureResult<CaptureBatch>;
+    fn stop(self: Box<Self>) -> StreamFuture;
+}
 type RecordingFuture = Pin<Box<dyn Future<Output = Result<RawRecording, String>> + Send>>;
 pub(super) trait Recording: std::fmt::Debug + Send {
     fn finish(self: Box<Self>) -> RecordingFuture;
@@ -22,6 +27,7 @@ pub(super) trait Recording: std::fmt::Debug + Send {
 pub(super) trait Backend: std::fmt::Debug + Send + Sync {
     fn devices(&self) -> Result<Vec<String>, String>;
     fn start(&self) -> Result<Box<dyn Recording>, String>;
+    fn stream(&self) -> Result<(tinyvoice_bus::capture::CaptureFormat, Box<dyn Stream>), String>;
 }
 #[derive(Debug)]
 struct BusyGuard(Arc<AtomicBool>);
@@ -36,11 +42,17 @@ struct Lease {
     busy: BusyGuard,
 }
 #[derive(Debug)]
+struct StreamLease {
+    stream: Box<dyn Stream>,
+    busy: BusyGuard,
+}
+#[derive(Debug)]
 pub(super) struct Capture {
     backend: Arc<dyn Backend>,
     busy: Arc<AtomicBool>,
     recordings: Mutex<HashMap<CaptureHandle, Lease>>,
     outputs: Mutex<HashMap<CaptureHandle, Vec<u8>>>,
+    streams: Mutex<HashMap<CaptureHandle, StreamLease>>,
 }
 impl Default for Capture {
     fn default() -> Self {
@@ -54,6 +66,7 @@ impl Capture {
             busy: Arc::new(AtomicBool::new(false)),
             recordings: Mutex::new(HashMap::new()),
             outputs: Mutex::new(HashMap::new()),
+            streams: Mutex::new(HashMap::new()),
         }
     }
     pub(super) fn devices(&self) -> CaptureResult<Vec<String>> {
@@ -115,6 +128,48 @@ impl Capture {
         let _ = recording.finish().await;
         drop(busy);
         Ok(())
+    }
+    pub(super) fn stream_start(
+        &self,
+        permission: MicrophonePermission,
+    ) -> CaptureResult<CaptureStream> {
+        if permission != MicrophonePermission::Granted {
+            return Err(CaptureError::PermissionDenied);
+        }
+        self.busy
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .map_err(|_| CaptureError::Busy)?;
+        let busy = BusyGuard(self.busy.clone());
+        let handle = handle()?;
+        let (format, stream) = self.backend.stream().map_err(CaptureError::Device)?;
+        self.streams
+            .lock()
+            .map_err(|_| CaptureError::Device("capture stream state unavailable".into()))?
+            .insert(handle.clone(), StreamLease { stream, busy });
+        Ok(CaptureStream { handle, format })
+    }
+    pub(super) fn stream_poll(&self, request: &CapturePollRequest) -> CaptureResult<CaptureBatch> {
+        if !(1..=2).contains(&request.max_chunks) {
+            return Err(CaptureError::LimitExceeded);
+        }
+        self.streams
+            .lock()
+            .map_err(|_| CaptureError::Device("capture stream state unavailable".into()))?
+            .get_mut(&request.handle)
+            .ok_or(CaptureError::UnknownHandle)?
+            .stream
+            .poll(request.max_chunks)
+    }
+    pub(super) async fn stream_stop(&self, handle: &CaptureHandle) -> CaptureResult<()> {
+        let StreamLease { stream, busy } = self
+            .streams
+            .lock()
+            .map_err(|_| CaptureError::Device("capture stream state unavailable".into()))?
+            .remove(handle)
+            .ok_or(CaptureError::UnknownHandle)?;
+        let result = stream.stop().await.map_err(CaptureError::Device);
+        drop(busy);
+        result
     }
     pub(super) fn read(&self, request: &ReadAudioRequest) -> CaptureResult<String> {
         if request.length == 0 || request.length > MAX_READ_BYTES {
@@ -200,3 +255,21 @@ pub(super) fn fixture_capture() -> Arc<Capture> {
 }
 
 mod device_native;
+
+fn poll_chunks(
+    rx: &mut tokio::sync::mpsc::Receiver<tinyvoice::capture::RawChunk>,
+    max_chunks: usize,
+) -> CaptureBatch {
+    let mut batch = CaptureBatch::default();
+    for _ in 0..max_chunks {
+        match rx.try_recv() {
+            Ok(chunk) => batch.chunks.push(chunk),
+            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                batch.closed = true;
+                break;
+            }
+        }
+    }
+    batch
+}

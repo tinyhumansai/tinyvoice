@@ -24,7 +24,7 @@ permission check.
 
 | Here | With the host |
 | --- | --- |
-| WAV framing, RMS, resampling, downmix, silence gate | Device capture (`cpal`) — a stream is `!Send` and needs the host's thread and permission model |
+| WAV framing, RMS, resampling, downmix, silence gate; module-owned capture threads | Microphone permission decisions through the computer module |
 | VAD segmentation | The capture loop that drives it |
 | Wake-word gate, intent routing | What to *do* with an intent |
 | Hallucination detection | The STT transport, credentials, and retry policy |
@@ -64,8 +64,8 @@ Run it: `cargo run -p tinyvoice --example basic`.
   `ActivationMode`, `HotkeyEvent`). Off by default so the library, and the
   loadable module built from it, carry no OS input hook.
 - `capture` (off by default): `tinyvoice::capture`, microphone input on `cpal`:
-  `start_recording` for a one-shot recording and `spawn_capture_thread` for a
-  continuous chunk stream, both returning the device's raw samples for
+  `start_recording` for a one-shot recording and `start_capture_stream` for a
+  continuous chunk stream with a stoppable thread handle, both returning the device's raw samples for
   `tinyvoice::audio` to process. Microphone permission is a `PermissionCheck`
   the host passes in. Off by default because it links the platform audio stack.
 
@@ -85,10 +85,10 @@ session methods (`VadOpen` / `VadPush` / `VadReset` / `VadClose`) exist for it.
 An earlier version of this README claimed otherwise, on an assumption rather
 than a measurement.
 
-The one thing that should stay on the host's side is whatever runs **inside the
-audio callback**: `cpal` delivers on a realtime thread where blocking is a
-dropout. Forward raw interleaved samples out of the callback and call
-`PrepareFrames` from a worker — less work in the callback, not more.
+The compiled module owns native capture threads and callbacks. `cpal` delivers
+on a realtime thread where blocking causes dropouts, so callbacks forward raw
+interleaved samples into a bounded queue. Hosts poll batches and call
+`PrepareFrames` from a worker.
 
 ## Layout
 
@@ -125,8 +125,8 @@ GPL-3.0-only. See [`LICENSE`](LICENSE).
 
 ## Module-owned recording
 
-Contract 1.1 adds device enumeration and one-shot recording through opaque
+Contract 1.2 adds device enumeration, one-shot recording and continuous capture through opaque
 handles. The host supplies a microphone permission grant obtained through
 TinyComputer; the compiled module owns the device, audio preparation, bounded
-WAV reads, cancellation and release. See [capture contract](docs/specs/module-capture.md).
-Continuous capture and hotkey bus lifecycles remain a separate migration.
+WAV reads, bounded raw chunk polling, cancellation and release. See [capture contract](docs/specs/module-capture.md).
+Hotkey bus lifecycles remain a separate migration.

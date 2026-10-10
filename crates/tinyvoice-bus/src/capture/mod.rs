@@ -69,3 +69,42 @@ pub type CaptureResult<T> = Result<T, CaptureError>;
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
+
+/// Native device format, reported once on stream startup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CaptureFormat {
+    /// Native sample rate.
+    pub source_rate: u32,
+    /// Interleaved channel count.
+    pub channels: u16,
+}
+/// Bounded native callback buffer, processed through module audio operations.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RawChunk {
+    /// Interleaved native f32 samples.
+    pub samples: Vec<f32>,
+}
+/// Opaque continuous capture lease and its native format.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureStream {
+    /// Lease consumed by `CaptureStop`.
+    pub handle: CaptureHandle,
+    /// Native device format.
+    pub format: CaptureFormat,
+}
+/// Bounded batch read request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapturePollRequest {
+    /// Continuous capture lease.
+    pub handle: CaptureHandle,
+    /// At most two callback buffers per call.
+    pub max_chunks: usize,
+}
+/// Ordered bounded chunks, with terminal channel status.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CaptureBatch {
+    /// Retained native chunks in capture order.
+    pub chunks: Vec<RawChunk>,
+    /// Native capture ended; stop releases the lease and reports its result.
+    pub closed: bool,
+}

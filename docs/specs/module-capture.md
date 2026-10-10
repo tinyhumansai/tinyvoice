@@ -1,6 +1,6 @@
-# Module-owned recording contract
+# Module-owned native capture contract
 
-TinyVoice contract 1.1 adds six members while preserving every existing method's
+TinyVoice contract 1.2 adds nine members while preserving every existing method's
 arity and wire format:
 
 | Member | One argument | Result |
@@ -11,6 +11,9 @@ arity and wire format:
 | RecordingCancel | CaptureHandle | CaptureResult of unit |
 | ReadAudioOutput | ReadAudioRequest | CaptureResult of base64 WAV bytes |
 | ReleaseAudioOutput | CaptureHandle | CaptureResult of unit |
+| CaptureStart | RecordingStartRequest | CaptureResult of CaptureStream |
+| CapturePoll | CapturePollRequest | CaptureResult of CaptureBatch |
+| CaptureStop | CaptureHandle | CaptureResult of unit |
 
 ListInputDevices has zero arguments. Each other new member takes exactly one.
 The contract contains serialized vocabulary only; CPAL, native device threads,
@@ -20,7 +23,7 @@ The host obtains the microphone decision through TinyComputer and passes an
 explicit Granted value. Denied is the default and fails before device access.
 The module preserves the library's dedicated-thread native capture behavior.
 
-Only one recording or finishing operation can own the device slot. Start returns
+Only one recording, continuous stream or finishing operation can own the device slot. Start returns
 a random opaque handle. Finish consumes it and waits for capture to stop before
 downmixing, resampling to 16 kHz, optional silence gating and PCM16 WAV encoding.
 Cancel consumes the recording and waits for device shutdown, discarding its
@@ -42,13 +45,21 @@ names, error detail, handles, audio, paths and request arguments.
 
 Local fixtures exercise lifecycle, bounds, faults and in-memory bus dispatch
 without hardware or external services. The actual compiled artifact verifier
-checks all 21 declared members and permission denial without opening a device.
+checks all 24 declared members and permission denial without opening a device.
 The native device bridge follows the repository's existing physical-device
 coverage exception; manager and processing code remain subject to the 90%
 per-file threshold.
 
 The release workflow installs ALSA development headers for Linux module builds.
-OpenHuman must pin a released artifact compatible with contract 1.1 and verify
-its digest before switching callers. Continuous capture and hotkey lifecycle
-operations are follow-up work; this change covers enumeration and one-shot
-recording only.
+OpenHuman must pin a released artifact compatible with contract 1.2 and verify
+its digest before switching callers. Hotkey lifecycle operations remain follow-up work.
+
+Continuous capture returns an opaque handle and native sample rate/channel
+format. Native callbacks forward interleaved f32 samples through an eight-chunk
+queue without blocking. Full queues and callbacks exceeding 32,768 samples drop
+the newest callback; polling drains one or two chunks in order, reports whether
+the sender has closed, and rejects larger batches. Stop consumes the handle,
+waits for native thread cleanup, and reports any terminal device failure. A
+failed setup or stop releases device capacity so callers can restart. Dropping
+the manager requests shutdown; closing the consumer also ends native capture.
+Neither stream polling nor device callbacks run STT, VAD or product policy.

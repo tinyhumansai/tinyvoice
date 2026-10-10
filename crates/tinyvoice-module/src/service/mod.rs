@@ -161,13 +161,8 @@ fn to_json<T: serde::Serialize>(value: &T) -> TinyBusResult<String> {
         .map_err(|e| tinybus::Error::failed(format!("could not encode result: {e}")))
 }
 
-// Every operation underneath is synchronous — this crate exists to move pure
-// functions across a bus, not to do I/O. `#[tinybus::interface]` still requires
-// `async fn` signatures because dispatch awaits them, so the methods are async
-// without awaiting anything. Making them genuinely async would mean inventing
-// work for them to wait on.
-// `#[tinybus::interface]` requires `async fn`; all work under this boundary is
-// synchronous and changing these signatures would break the generated adapter.
+// Pure audio operations use required async signatures; device startup runs
+// on blocking workers and lifecycle completion awaits native cleanup.
 #[allow(
     clippy::unused_async,
     reason = "TinyBus interface methods require async signatures"
@@ -182,6 +177,32 @@ impl VoiceService {
         tokio::task::spawn_blocking(move || capture.devices())
             .await
             .map_err(|_| tinybus::Error::failed("capture worker failed"))
+    }
+    /// Start native continuous capture after a computer-module permission grant.
+    async fn capture_start(
+        &self,
+        request: tinyvoice_bus::capture::RecordingStartRequest,
+    ) -> TinyBusResult<tinyvoice_bus::capture::CaptureResult<tinyvoice_bus::capture::CaptureStream>>
+    {
+        let capture = self.capture.clone();
+        tokio::task::spawn_blocking(move || capture.stream_start(request.permission))
+            .await
+            .map_err(|_| tinybus::Error::failed("capture start worker failed"))
+    }
+    /// Read at most two native chunks without blocking or per-sample requests.
+    async fn capture_poll(
+        &self,
+        request: tinyvoice_bus::capture::CapturePollRequest,
+    ) -> TinyBusResult<tinyvoice_bus::capture::CaptureResult<tinyvoice_bus::capture::CaptureBatch>>
+    {
+        Ok(self.capture.stream_poll(&request))
+    }
+    /// Stop capture, wait for device cleanup and release its lease.
+    async fn capture_stop(
+        &self,
+        handle: tinyvoice_bus::capture::CaptureHandle,
+    ) -> TinyBusResult<tinyvoice_bus::capture::CaptureResult<()>> {
+        Ok(self.capture.stream_stop(&handle).await)
     }
     /// Open a native recording after an explicit permission decision.
     async fn recording_start(
@@ -565,6 +586,9 @@ tinybus_module::module_export_optional_static! {
         "VadClose",
         "PrepareFrames",
         "FrameEnergies",
+        "CaptureStart",
+        "CapturePoll",
+        "CaptureStop",
         "EncodeWav",
         "EncodeWavPcm16",
         "PrepareCapture",

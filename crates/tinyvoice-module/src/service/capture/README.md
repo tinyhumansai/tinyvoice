@@ -1,24 +1,22 @@
-# Native recording ownership
+# Native capture ownership
 
-The capture manager owns a single active device lease, including finish and
-preparation, and up to four WAV outputs totaling 32 MiB. Permission must be an
-explicit host grant obtained through TinyComputer before the native backend is
-called. The backend preserves the library's dedicated-thread CPAL lifecycle.
+`Capture` owns one microphone slot shared by recording and continuous streams.
+Each live resource holds a `BusyGuard`; failures and drop release the slot.
+`Backend`, `Recording` and `Stream` allow lifecycle fixtures without hardware.
+The production bridge in `device_native.rs` opens CPAL through the library's
+existing dedicated thread behavior only after the host supplies permission.
 
-RecordingStart returns a random opaque handle. RecordingFinish consumes it,
-waits for device shutdown, downmixes/resamples/gates inside the module, and
-returns an output handle. RecordingCancel consumes the recording and waits for
-its device thread to finish. Dropping the module stops remaining handles through
-the existing library Drop implementation. Invalid processing arguments retain
-the recording so the host can cancel it. Device/setup faults release capacity.
+Recording leases become bounded prepared WAV outputs when finished. Cancel
+waits for device cleanup and discards samples. Invalid processing parameters
+retain the recording lease so callers can retry or cancel.
 
-ReadAudioOutput accepts at most 256 KiB per call and returns base64 WAV bytes;
-ReleaseAudioOutput frees the held output. Unknown, consumed and released handles
-fail explicitly. Output size is checked before resampling to bound allocation
-and again against the aggregate store budget. No calls occur per audio sample.
+Continuous leases use an eight-chunk native queue. Polling drains at most two
+chunks without waiting, preserving native channels, sample rate and ordering.
+The library drops callbacks larger than 32,768 samples and drops the newest
+callback when the queue is full. Stop removes the lease, awaits thread cleanup
+and reports terminal failures; drop requests shutdown without waiting.
 
-The native bridge in device_native.rs touches real devices and follows the
-repository's existing device-file coverage exception. Backend fixtures exercise
-permission admission, exclusivity, cancellation, preparation, bounded reads,
-release and faults without hardware. Native fault detail is for product
-presentation only; host telemetry must use the safe reason code without detail.
+Mutex poisoning fails closed. Unknown and consumed handles fail explicitly.
+Opaque random handles prevent accidental rebinding across module reloads.
+Tests exercise permission denial, exclusivity, bounds, restart, failed setup,
+failed stop, manager drop, serialization and poisoned tables.

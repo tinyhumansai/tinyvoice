@@ -790,3 +790,56 @@ async fn prepare_capture_gates_inside_the_module_and_rejects_invalid_formats() -
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn continuous_capture_lifecycle_executes_through_bus_fixtures() -> tinybus::Result<()> {
+    use tinyvoice_bus::capture::*;
+    let bus = MemoryBus::new();
+    let task = Broker::new().spawn(bus.clone());
+    let service = Connection::connect(bus.connect().await?).await?;
+    let fixture = VoiceService {
+        capture: super::capture::fixture_capture(),
+        ..VoiceService::default()
+    };
+    service.serve_at(OBJECT_PATH.try_into()?, fixture).await?;
+    service.request_name(BUS_NAME).await?;
+    let client = Connection::connect(bus.connect().await?).await?;
+    let proxy = client.proxy(BUS_NAME, OBJECT_PATH, BUS_NAME)?;
+    let denied: CaptureResult<CaptureStream> = proxy
+        .call(
+            names::methods::CAPTURE_START,
+            (RecordingStartRequest::default(),),
+        )
+        .await?;
+    assert!(matches!(denied, Err(CaptureError::PermissionDenied)));
+    let stream: CaptureResult<CaptureStream> = proxy
+        .call(
+            names::methods::CAPTURE_START,
+            (RecordingStartRequest {
+                permission: MicrophonePermission::Granted,
+            },),
+        )
+        .await?;
+    let stream = stream.unwrap();
+    assert_eq!(stream.format.channels, 1);
+    let batch: CaptureResult<CaptureBatch> = proxy
+        .call(
+            names::methods::CAPTURE_POLL,
+            (CapturePollRequest {
+                handle: stream.handle.clone(),
+                max_chunks: 2,
+            },),
+        )
+        .await?;
+    assert_eq!(batch.unwrap().chunks[0].samples, vec![0.25; 16]);
+    let stopped: CaptureResult<()> = proxy
+        .call(names::methods::CAPTURE_STOP, (stream.handle.clone(),))
+        .await?;
+    assert_eq!(stopped, Ok(()));
+    let missing: CaptureResult<()> = proxy
+        .call(names::methods::CAPTURE_STOP, (stream.handle,))
+        .await?;
+    assert_eq!(missing, Err(CaptureError::UnknownHandle));
+    task.abort();
+    Ok(())
+}

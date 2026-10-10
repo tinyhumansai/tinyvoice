@@ -34,7 +34,10 @@ mod device_recording;
 mod device_stream;
 mod recording;
 
-pub use chunks::{CaptureFormat, RawChunk, spawn_capture_thread};
+pub use chunks::{
+    CaptureFormat, CaptureStreamHandle, MAX_CHUNK_SAMPLES, RawChunk, spawn_capture_thread,
+    start_capture_stream,
+};
 pub use device_recording::list_input_devices;
 pub use recording::{RawRecording, RecordingHandle, start_recording};
 

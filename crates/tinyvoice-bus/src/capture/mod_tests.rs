@@ -29,3 +29,27 @@ fn native_faults_are_structured_product_results() -> Result<(), serde_json::Erro
     assert_eq!(serde_json::from_value::<CaptureError>(wire)?, fault);
     Ok(())
 }
+
+#[test]
+fn continuous_format_and_batches_preserve_native_samples() -> Result<(), serde_json::Error> {
+    let stream = CaptureStream {
+        handle: CaptureHandle("lease".into()),
+        format: CaptureFormat {
+            source_rate: 48_000,
+            channels: 2,
+        },
+    };
+    let wire = serde_json::to_value(&stream)?;
+    let decoded: CaptureStream = serde_json::from_value(wire)?;
+    assert_eq!(decoded.format, stream.format);
+    let batch = CaptureBatch {
+        chunks: vec![RawChunk {
+            samples: vec![0.25, -0.25],
+        }],
+        closed: false,
+    };
+    let decoded: CaptureBatch = serde_json::from_value(serde_json::to_value(&batch)?)?;
+    assert_eq!(decoded.chunks, batch.chunks);
+    assert!(!decoded.closed);
+    Ok(())
+}

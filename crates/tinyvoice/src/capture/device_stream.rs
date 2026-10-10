@@ -1,5 +1,5 @@
 //! The `cpal` half of the continuous stream: open the default input, forward
-//! each callback's buffer, and keep the stream alive for the process lifetime.
+//! each callback's buffer, and keep the stream alive until stopped or its consumer closes.
 //!
 //! Touches a real audio device, so like [`super::device_recording`] it is
 //! excluded from the per-file coverage gate; the forwarding, drop accounting and
@@ -31,6 +31,7 @@ const LOG_PREFIX: &str = "[voice::always_on]";
 /// where the right amount of work is the least possible.
 pub(crate) fn capture_on_thread(
     permission: PermissionCheck,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     tx: tokio::sync::mpsc::Sender<RawChunk>,
     setup_tx: &std::sync::mpsc::SyncSender<Result<CaptureFormat, String>>,
 ) -> Result<(), String> {
@@ -60,6 +61,7 @@ pub(crate) fn capture_on_thread(
         "{LOG_PREFIX} capture device ready name='{device_name}' rate={source_rate}->{TARGET_SAMPLE_RATE} channels={channels} format={sample_format:?}"
     );
 
+    let lifecycle_tx = tx.clone();
     let send_chunk = move |samples: Vec<f32>| forward(&tx, samples);
 
     let (stream_error_tx, stream_error_rx) = mpsc::channel();
@@ -104,13 +106,5 @@ pub(crate) fn capture_on_thread(
     }));
     log::info!("{LOG_PREFIX} microphone stream live");
 
-    // Keep the stream alive until the device reports a terminal stream error.
-    // Returning drops the sender, allowing the consumer to observe channel closure.
-    loop {
-        match stream_error_rx.recv_timeout(std::time::Duration::from_secs(3600)) {
-            Ok(error) => return Err(error),
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
-        }
-    }
+    super::chunks::wait_for_stream_end(&lifecycle_tx, &stop, &stream_error_rx)
 }
