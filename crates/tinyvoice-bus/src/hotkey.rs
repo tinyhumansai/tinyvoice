@@ -7,12 +7,13 @@ use serde::{Deserialize, Serialize};
 pub struct HotkeyHandle(pub String);
 
 /// Existing tap-toggle or push-to-talk behavior.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActivationMode {
     /// A fresh down toggles activation.
     Tap,
     /// A down activates until its matching up.
+    #[default]
     Push,
 }
 

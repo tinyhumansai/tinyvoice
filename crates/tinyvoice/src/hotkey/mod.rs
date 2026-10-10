@@ -22,30 +22,11 @@ use log::{debug, info, warn};
 use parking_lot::Mutex;
 pub use rdev::Key;
 use rdev::{Event, EventType, listen};
+pub use tinyvoice_bus::hotkey::{ActivationMode, HotkeyEvent};
 use tokio::sync::mpsc;
 
 const LOG_PREFIX: &str = "[voice_hotkey]";
 static LISTENER_STARTED: OnceLock<AtomicBool> = OnceLock::new();
-
-/// Activation mode for the voice hotkey.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ActivationMode {
-    /// Single press toggles recording on/off.
-    Tap,
-    /// Hold to record, release to stop.
-    #[default]
-    Push,
-}
-
-/// Events emitted by the hotkey listener.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HotkeyEvent {
-    /// The hotkey was pressed (start recording).
-    Pressed,
-    /// The hotkey was released (stop recording — only relevant in Push mode).
-    Released,
-}
 
 /// Parsed hotkey combination (e.g. Ctrl+Shift+Space).
 #[derive(Debug, Clone)]

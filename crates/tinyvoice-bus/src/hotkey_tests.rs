@@ -9,6 +9,11 @@ fn activation_mode_wire_names_remain_compatible() {
 }
 
 #[test]
+fn activation_mode_defaults_to_push() {
+    assert_eq!(ActivationMode::default(), ActivationMode::Push);
+}
+
+#[test]
 fn host_facts_have_a_generic_stable_wire_shape() {
     let fact = SequencedHostFact {
         sequence: 9,
