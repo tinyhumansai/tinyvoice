@@ -276,7 +276,7 @@ fn read_replays_identical_batch_until_exact_acknowledgment() {
             acknowledged_batch: Some(first.batch),
         })
         .unwrap();
-    assert!(next.events.is_empty());
+    assert_eq!(next.events.len(), 0);
     assert!(next.active);
 }
 
@@ -324,7 +324,7 @@ fn output_overflow_resets_inactive_and_rearms_only_after_release() {
         .unwrap();
     assert!(reset.reset);
     assert!(!reset.active);
-    assert!(reset.events.is_empty());
+    assert_eq!(reset.events.len(), 0);
     assert!(!feed(&hotkeys, &handle, generation, &[(258, HostKeyFact::Up)]).active);
     assert!(feed(&hotkeys, &handle, generation, &[(259, HostKeyFact::Down)]).active);
 }
@@ -392,7 +392,7 @@ fn acknowledging_prior_batch_after_host_gap_returns_reset_snapshot() {
         .expect("the outstanding batch acknowledgment remains valid across a gap");
     assert!(reset.reset);
     assert!(!reset.active);
-    assert!(reset.events.is_empty());
+    assert_eq!(reset.events.len(), 0);
 }
 
 #[test]
@@ -485,7 +485,7 @@ fn native_reader_eof_after_down_returns_inactive_reset_snapshot() {
         !after_ack.active,
         "stale queued Down is discarded with the reset snapshot"
     );
-    assert!(after_ack.events.is_empty());
+    assert_eq!(after_ack.events.len(), 0);
 }
 
 #[test]

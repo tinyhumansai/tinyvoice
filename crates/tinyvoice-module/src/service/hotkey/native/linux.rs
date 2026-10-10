@@ -180,7 +180,7 @@ fn process_record_bytes(
     events: &mpsc::SyncSender<bool>,
     overflow: &AtomicBool,
 ) {
-    let frames = bytes.chunks_exact(32).collect::<Vec<_>>();
+    let (frames, _) = bytes.as_chunks::<32>();
     let mut index = 0;
     while index < frames.len() {
         let frame = frames[index];

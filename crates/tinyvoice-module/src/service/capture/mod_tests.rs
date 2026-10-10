@@ -395,7 +395,7 @@ fn chunk_poll_preserves_order_and_limits_batch_size() -> Result<(), Box<dyn std:
     assert_eq!(batch.chunks[1].samples, vec![2.0]);
     assert!(!batch.closed);
     assert_eq!(poll_chunks(&mut rx, 1).chunks[0].samples, vec![3.0]);
-    assert!(poll_chunks(&mut rx, 2).chunks.is_empty());
+    assert_eq!(poll_chunks(&mut rx, 2).chunks.len(), 0);
     drop(tx);
     assert!(poll_chunks(&mut rx, 2).closed);
     Ok(())
