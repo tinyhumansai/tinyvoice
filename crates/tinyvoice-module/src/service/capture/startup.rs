@@ -57,12 +57,12 @@ impl Capture {
         &self,
         permission: MicrophonePermission,
     ) -> CaptureResult<CaptureHandle> {
-        if permission != MicrophonePermission::Granted {
-            return Err(CaptureError::PermissionDenied);
-        }
         let mut reservations = self.reservations.lock().map_err(|_| state_error())?;
         if self.closed.load(Ordering::SeqCst) {
             return Err(CaptureError::Closed);
+        }
+        if permission != MicrophonePermission::Granted {
+            return Err(CaptureError::PermissionDenied);
         }
         reservations.retain(|_, reservation| {
             reservation.pending.is_some() || reservation.created.elapsed() < RESERVATION_TTL
@@ -85,15 +85,16 @@ impl Capture {
         request: RecordingStartRequest,
         stream: bool,
     ) -> CaptureResult<Started> {
-        if request.permission != MicrophonePermission::Granted {
-            return Err(CaptureError::PermissionDenied);
-        }
-        let handle = request.handle.ok_or(CaptureError::InvalidParameters)?;
-        let (pending, busy) = {
+        let permission = request.permission;
+        let (handle, pending, busy) = {
             let mut reservations = self.reservations.lock().map_err(|_| state_error())?;
             if self.closed.load(Ordering::SeqCst) {
                 return Err(CaptureError::Closed);
             }
+            if permission != MicrophonePermission::Granted {
+                return Err(CaptureError::PermissionDenied);
+            }
+            let handle = request.handle.ok_or(CaptureError::InvalidParameters)?;
             let reservation = reservations
                 .get_mut(&handle)
                 .ok_or(CaptureError::UnknownHandle)?;
@@ -115,7 +116,7 @@ impl Capture {
                 completed,
             });
             reservation.pending = Some(pending.clone());
-            (pending, busy)
+            (handle, pending, busy)
         };
         let capture = self.clone();
         let (reply, received) = tokio::sync::oneshot::channel();

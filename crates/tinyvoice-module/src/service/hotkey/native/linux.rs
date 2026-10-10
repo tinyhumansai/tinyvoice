@@ -16,6 +16,7 @@ use x11rb::{
     rust_connection::RustConnection,
 };
 const CONTROL_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(300);
+const MAX_RECORD_FRAMES: usize = 256;
 
 pub(super) fn start(request: &HotkeyRequest) -> Result<NativeListener, HotkeyError> {
     let combo =
@@ -180,7 +181,11 @@ fn process_record_bytes(
     events: &mpsc::SyncSender<bool>,
     overflow: &AtomicBool,
 ) {
-    let (frames, _) = bytes.as_chunks::<32>();
+    let (frames, remainder) = bytes.as_chunks::<32>();
+    if frames.len() > MAX_RECORD_FRAMES || !remainder.is_empty() {
+        overflow.store(true, Ordering::SeqCst);
+        return;
+    }
     let mut index = 0;
     while index < frames.len() {
         let frame = frames[index];

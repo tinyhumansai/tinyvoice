@@ -175,7 +175,13 @@ pub(super) fn wait_for_stream_end(
     errors: &std::sync::mpsc::Receiver<String>,
 ) -> Result<(), String> {
     loop {
-        if stop.load(Ordering::SeqCst) || tx.is_closed() {
+        if stop.load(Ordering::SeqCst) {
+            return match errors.try_recv() {
+                Ok(error) => Err(error),
+                Err(_) => Ok(()),
+            };
+        }
+        if tx.is_closed() {
             return Ok(());
         }
         match errors.recv_timeout(std::time::Duration::from_millis(50)) {

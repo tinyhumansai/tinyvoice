@@ -21,34 +21,18 @@ pub(super) fn start(request: &HotkeyRequest) -> Result<NativeListener, HotkeyErr
     };
     let mut listener = tinyvoice_hotkey_win::start(chord).map_err(|_| HotkeyError::Unsupported)?;
     let events = listener.take_events().ok_or(HotkeyError::Unsupported)?;
-    let (sender, receiver) = std::sync::mpsc::sync_channel(256);
     let overflow = listener.overflow();
-    let bridge_overflow = overflow.clone();
-    let bridge = std::thread::Builder::new()
-        .name("tinyvoice-hotkey-win-bridge".into())
-        .spawn(move || {
-            while let Ok(event) = events.recv() {
-                if sender.try_send(event).is_err() {
-                    bridge_overflow.store(true, std::sync::atomic::Ordering::SeqCst);
-                }
-            }
-        })
-        .map_err(|_| HotkeyError::Unsupported)?;
     Ok(NativeListener::new(
-        receiver,
+        events,
         overflow,
         Arc::new(AtomicBool::new(false)),
-        Box::new(WindowsOwner {
-            listener,
-            bridge: Some(bridge),
-        }),
+        Box::new(WindowsOwner { listener }),
     ))
 }
 
 #[derive(Debug)]
 struct WindowsOwner {
     listener: Listener,
-    bridge: Option<std::thread::JoinHandle<()>>,
 }
 
 impl NativeOwner for WindowsOwner {
@@ -56,9 +40,6 @@ impl NativeOwner for WindowsOwner {
         self.listener
             .stop()
             .map_err(|_| HotkeyError::CleanupFailed)?;
-        if let Some(bridge) = self.bridge.take() {
-            bridge.join().map_err(|_| HotkeyError::CleanupFailed)?;
-        }
         Ok(())
     }
 }

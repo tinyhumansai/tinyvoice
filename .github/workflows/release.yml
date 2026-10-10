@@ -293,7 +293,11 @@ jobs:
           package_root="dist/${package_name}"
           mkdir -p "$package_root"
           install -m 755 "$module" "$package_root/"
-          install -m 644 LICENSE README.md docs/specs/tinybus-module.md "$package_root/"
+          install -m 644 LICENSE README.md docs/specs/tinybus-module.md \
+            docs/specs/module-capture.md docs/specs/hotkey-module-lifecycle.md \
+            "$package_root/"
+          test -s "$package_root/module-capture.md"
+          test -s "$package_root/hotkey-module-lifecycle.md"
           module_name="$(basename "$module")"
           module_hash="$(sha256sum "$package_root/$module_name" | awk '{print $1}')"
           printf '"%s" = "%s"\n' "$module_name" "$module_hash" \
@@ -315,7 +319,21 @@ jobs:
           $packageName = "tinyvoice-module-$env:VERSION-$env:BUNDLE_ID"
           $packageRoot = "dist/$packageName"
           New-Item -ItemType Directory -Force $packageRoot | Out-Null
-          Copy-Item -LiteralPath $module, 'LICENSE', 'README.md' -Destination $packageRoot
+          $packageFiles = @(
+            $module
+            'LICENSE'
+            'README.md'
+            'docs/specs/tinybus-module.md'
+            'docs/specs/module-capture.md'
+            'docs/specs/hotkey-module-lifecycle.md'
+          )
+          Copy-Item -LiteralPath $packageFiles -Destination $packageRoot
+          if (-not (Test-Path -LiteralPath "$packageRoot/module-capture.md" -PathType Leaf)) {
+            throw 'The package is missing module-capture.md.'
+          }
+          if (-not (Test-Path -LiteralPath "$packageRoot/hotkey-module-lifecycle.md" -PathType Leaf)) {
+            throw 'The package is missing hotkey-module-lifecycle.md.'
+          }
           $hash = (Get-FileHash -LiteralPath $module -Algorithm SHA256).Hash.ToLowerInvariant()
           $moduleName = Split-Path -Leaf $module
           "`"$moduleName`" = `"$hash`"`n" |

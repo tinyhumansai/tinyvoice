@@ -129,5 +129,5 @@ Contract 1.3 adds device enumeration, reserved startup/cancellation, one-shot re
 handles. The host supplies a microphone permission grant obtained through
 TinyComputer; the compiled module owns the device, audio preparation, bounded
 WAV reads, bounded raw chunk polling, cancellation and release. See [capture contract](docs/specs/module-capture.md).
-The next module-owned lifecycle is specified in [hotkeys](docs/specs/hotkey-module-lifecycle.md).
-Hotkey bus lifecycles remain a separate migration.
+Module-owned hotkeys are specified in [hotkey lifecycle](docs/specs/hotkey-module-lifecycle.md); the optional
+`tinyvoice::hotkey` listener remains available to library hosts.

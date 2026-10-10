@@ -204,13 +204,13 @@ impl Capture {
         &self,
         request: RecordingFinishRequest,
     ) -> CaptureResult<AudioOutput> {
-        if !request.gate_threshold.is_finite() || request.gate_threshold < 0.0 {
-            return Err(CaptureError::InvalidParameters);
-        }
         let (recording, busy, canceled) = {
             let mut finishing = self.finishing.lock().map_err(|_| state_error())?;
             if self.closed.load(Ordering::SeqCst) {
                 return Err(CaptureError::Closed);
+            }
+            if !request.gate_threshold.is_finite() || request.gate_threshold < 0.0 {
+                return Err(CaptureError::InvalidParameters);
             }
             let Lease { recording, busy } = self.take(&request.handle)?;
             let canceled = Arc::new(AtomicBool::new(false));
@@ -423,7 +423,12 @@ fn prepare(raw: &RawRecording, threshold: f32) -> CaptureResult<Vec<u8>> {
             audio::STT_SAMPLE_RATE,
         )
         .map_err(|error| CaptureError::Device(error.to_string()))?;
-        gate.push(&samples)
+        let frame_samples = (audio::STT_SAMPLE_RATE as usize / 100).max(1);
+        let mut gated = Vec::with_capacity(samples.len());
+        for frame in samples.chunks(frame_samples) {
+            gated.extend(gate.push(frame));
+        }
+        gated
     } else {
         samples
     };

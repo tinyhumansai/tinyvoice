@@ -233,6 +233,29 @@ fn a_full_native_event_queue_reports_continuity_loss() {
     assert_eq!(receiver.try_iter().collect::<Vec<_>>(), vec![true]);
 }
 
+#[test]
+fn oversized_record_reply_reports_continuity_loss_without_partial_events() {
+    let combo = tinyvoice::hotkey::parse_hotkey("space").unwrap();
+    let bytes: Vec<_> = (0..=MAX_RECORD_FRAMES)
+        .flat_map(|timestamp| key_event(2, 65, u32::try_from(timestamp).unwrap_or_default()))
+        .collect();
+    let (sender, receiver) = mpsc::sync_channel(8);
+    let mut down = HashSet::new();
+    let overflow = AtomicBool::new(false);
+
+    process_record_bytes(
+        &bytes,
+        &combo,
+        ActivationMode::Push,
+        &mut down,
+        &sender,
+        &overflow,
+    );
+
+    assert!(overflow.load(Ordering::SeqCst));
+    assert!(receiver.try_iter().next().is_none());
+}
+
 fn key_event(kind: u8, keycode: u8, timestamp: u32) -> [u8; 32] {
     let mut bytes = [0_u8; 32];
     bytes[0] = kind;

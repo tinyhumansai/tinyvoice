@@ -108,6 +108,40 @@ async fn permission_busy_cancel_and_drop_release_device_ownership() -> CaptureRe
 }
 
 #[tokio::test]
+async fn capture_shutdown_takes_precedence_over_invalid_requests() -> CaptureResult<()> {
+    let (capture, _) = fixture(false);
+    let capture = Arc::new(capture);
+    capture.shutdown().await?;
+
+    assert_eq!(
+        capture.reserve(MicrophonePermission::Denied),
+        Err(CaptureError::Closed)
+    );
+    assert!(matches!(
+        capture
+            .start_reserved(
+                RecordingStartRequest {
+                    permission: MicrophonePermission::Denied,
+                    handle: None,
+                },
+                false,
+            )
+            .await,
+        Err(CaptureError::Closed)
+    ));
+    assert_eq!(
+        capture
+            .finish(RecordingFinishRequest {
+                handle: CaptureHandle("unknown".into()),
+                gate_threshold: f32::NAN,
+            })
+            .await,
+        Err(CaptureError::Closed)
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn finish_holds_prepared_wav_for_bounded_reads_and_explicit_release() -> CaptureResult<()> {
     let (capture, _) = fixture(false);
     let handle = capture.start(MicrophonePermission::Granted)?;
@@ -162,6 +196,30 @@ async fn finish_holds_prepared_wav_for_bounded_reads_and_explicit_release() -> C
     assert_eq!(
         capture.release(&output.handle),
         Err(CaptureError::UnknownHandle)
+    );
+    Ok(())
+}
+
+#[test]
+fn silence_gate_preserves_short_speech_before_a_long_silent_tail() -> CaptureResult<()> {
+    let mut samples = vec![0.1; 1_000];
+    samples.extend(vec![0.0; 16_000]);
+    let wav = prepare(
+        &RawRecording {
+            samples,
+            source_rate: 16_000,
+            channels: 1,
+        },
+        0.03,
+    )?;
+
+    assert!(wav.len() > 44, "speech must survive silence gating");
+    assert!(
+        wav[44..]
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .any(|sample| *sample != [0, 0])
     );
     Ok(())
 }

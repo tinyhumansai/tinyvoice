@@ -12,7 +12,8 @@ keywords = ["voice", "vad", "speech", "audio", "agent"]
 categories = ["multimedia::audio"]
 
 [dependencies]
-# The shared serialized vocabulary used by this crate and its TinyBus module.
+# Shared wire payloads live in a transport-free crate; this adds no TinyBus
+# runtime or module SDK dependency to the voice library.
 tinyvoice-bus = { version = "0.1.2", path = "../tinyvoice-bus" }
 # Derive macros for the crate-wide error type in `src/error/mod.rs`.
 thiserror = "2"

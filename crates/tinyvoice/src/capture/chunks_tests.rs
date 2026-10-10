@@ -203,6 +203,19 @@ fn stream_lifetime_surfaces_device_errors_and_accepts_explicit_stop() {
     assert!(super::wait_for_stream_end(&tx, &stop, &rx).is_ok());
 }
 
+#[test]
+fn explicit_stop_preserves_a_queued_device_error() {
+    let (tx, _rx) = tokio::sync::mpsc::channel(1);
+    let (errors, rx) = std::sync::mpsc::channel();
+    errors.send("device disconnected".to_string()).unwrap();
+
+    assert_eq!(
+        super::wait_for_stream_end(&tx, &std::sync::atomic::AtomicBool::new(true), &rx)
+            .unwrap_err(),
+        "device disconnected"
+    );
+}
+
 #[tokio::test]
 async fn oversized_native_buffers_are_dropped_before_queueing() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(2);
