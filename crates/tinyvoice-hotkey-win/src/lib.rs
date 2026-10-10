@@ -21,6 +21,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_APP, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
+mod lifecycle;
+
 const STOP_MESSAGE: u32 = WM_APP + 0x41;
 const STOP_REPLY_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -57,17 +59,11 @@ impl Listener {
 
     /// Unhooks on the owner thread and joins it before returning success.
     pub fn stop(&mut self) -> Result<(), HookError> {
-        if self.worker.is_none() { return Ok(()); }
-        let posted = unsafe { PostThreadMessageW(self.thread_id, STOP_MESSAGE, 0, 0) };
-        if posted == 0 { return Err(HookError); }
-        match self.replies.recv_timeout(STOP_REPLY_TIMEOUT) {
-            Ok(Ok(())) => {
-                if let Some(worker) = self.worker.take() { worker.join().map_err(|_| HookError)??; }
-                Ok(())
-            }
-            Ok(Err(error)) => Err(error),
-            Err(_) => Err(HookError),
-        }
+        lifecycle::stop_worker(
+            &mut self.worker,
+            || unsafe { PostThreadMessageW(self.thread_id, STOP_MESSAGE, 0, 0) != 0 },
+            || self.replies.recv_timeout(STOP_REPLY_TIMEOUT).map_err(|_| ()),
+        )
     }
 }
 
@@ -128,28 +124,45 @@ fn owner_loop(
     let module = unsafe { GetModuleHandleW(std::ptr::null()) };
     let hook = unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_callback), module, 0) };
     if hook.is_null() { let _ = ready.send(Err(HookError)); return Err(HookError); }
-    CALLBACK.with(|target| *target.borrow_mut() = Some(CallbackState { chord, pressed: [false; 256], sender, overflow }));
+    CALLBACK.with(|target| *target.borrow_mut() = Some(CallbackState { chord, pressed: [false; 256], sender, overflow: overflow.clone() }));
     if ready.send(Ok(())).is_err() {
         let result = unsafe { UnhookWindowsHookEx(hook) };
         CALLBACK.with(|target| *target.borrow_mut() = None);
         return if result != 0 { Ok(()) } else { Err(HookError) };
     }
     loop {
-        let result = unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) };
-        if result <= 0 { break; }
-        if message.message == STOP_MESSAGE {
-            let result = unsafe { UnhookWindowsHookEx(hook) };
-            if result != 0 {
+        let message_result = unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) };
+        if message_result <= 0 {
+            lifecycle::mark_unexpected_exit(message_result, &overflow);
+            let unhooked = unsafe { UnhookWindowsHookEx(hook) };
+            if unhooked != 0 {
                 CALLBACK.with(|target| *target.borrow_mut() = None);
-                let _ = replies.send(Ok(()));
+                let _ = replies.try_send(Ok(()));
                 return Ok(());
             }
-            let _ = replies.send(Err(HookError));
-        } else if message.message == WM_QUIT { break; }
+            let _ = replies.try_send(Err(HookError));
+            if message_result < 0 { thread::sleep(Duration::from_millis(50)); }
+            continue;
+        }
+        if message.message == STOP_MESSAGE {
+            let unhooked = unsafe { UnhookWindowsHookEx(hook) };
+            if unhooked != 0 {
+                CALLBACK.with(|target| *target.borrow_mut() = None);
+                let _ = replies.try_send(Ok(()));
+                return Ok(());
+            }
+            let _ = replies.try_send(Err(HookError));
+        } else if message.message == WM_QUIT {
+            lifecycle::mark_unexpected_exit(0, &overflow);
+            let unhooked = unsafe { UnhookWindowsHookEx(hook) };
+            if unhooked != 0 {
+                CALLBACK.with(|target| *target.borrow_mut() = None);
+                let _ = replies.try_send(Ok(()));
+                return Ok(());
+            }
+            let _ = replies.try_send(Err(HookError));
+        }
     }
-    let result = unsafe { UnhookWindowsHookEx(hook) };
-    CALLBACK.with(|target| *target.borrow_mut() = None);
-    if result != 0 { Ok(()) } else { Err(HookError) }
 }
 
 unsafe extern "system" fn keyboard_callback(code: i32, message: WPARAM, data: LPARAM) -> LRESULT {
