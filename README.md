@@ -122,3 +122,11 @@ CI additionally requires 90% line coverage in every source file and a clean
 ## License
 
 GPL-3.0-only. See [`LICENSE`](LICENSE).
+
+## Module-owned recording
+
+Contract 1.1 adds device enumeration and one-shot recording through opaque
+handles. The host supplies a microphone permission grant obtained through
+TinyComputer; the compiled module owns the device, audio preparation, bounded
+WAV reads, cancellation and release. See [capture contract](docs/specs/module-capture.md).
+Continuous capture and hotkey bus lifecycles remain a separate migration.

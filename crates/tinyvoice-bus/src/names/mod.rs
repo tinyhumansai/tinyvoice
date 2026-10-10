@@ -38,6 +38,23 @@ pub mod methods {
     pub const ENCODE_WAV_PCM16: &str = "EncodeWavPcm16";
     /// Runs the capture preparation pipeline and produces a WAV file.
     pub const PREPARE_CAPTURE: &str = "PrepareCapture";
+    /// Native capture operation executed inside the compiled module.
+    pub const LIST_INPUT_DEVICES: &str = "ListInputDevices";
+
+    /// Native capture operation executed inside the compiled module.
+    pub const RECORDING_START: &str = "RecordingStart";
+
+    /// Native capture operation executed inside the compiled module.
+    pub const RECORDING_FINISH: &str = "RecordingFinish";
+
+    /// Native capture operation executed inside the compiled module.
+    pub const RECORDING_CANCEL: &str = "RecordingCancel";
+
+    /// Native capture operation executed inside the compiled module.
+    pub const READ_AUDIO_OUTPUT: &str = "ReadAudioOutput";
+
+    /// Native capture operation executed inside the compiled module.
+    pub const RELEASE_AUDIO_OUTPUT: &str = "ReleaseAudioOutput";
 }
 
 /// Every member of [`BUS_NAME`], in the interface's sorted dispatch order.
@@ -47,8 +64,14 @@ pub const METHODS: &[&str] = &[
     methods::EXTRACT_COMMAND,
     methods::FRAME_ENERGIES,
     methods::IS_HALLUCINATED,
+    methods::LIST_INPUT_DEVICES,
     methods::PREPARE_CAPTURE,
     methods::PREPARE_FRAMES,
+    methods::READ_AUDIO_OUTPUT,
+    methods::RECORDING_CANCEL,
+    methods::RECORDING_FINISH,
+    methods::RECORDING_START,
+    methods::RELEASE_AUDIO_OUTPUT,
     methods::ROUTE,
     methods::SEGMENT,
     methods::VAD_CLOSE,

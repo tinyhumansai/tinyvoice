@@ -60,6 +60,7 @@ pub struct VoiceService {
     /// async mutex would add a scheduling hop to a lock that is never contended
     /// for long. It is deliberately never held across an `.await`.
     sessions: std::sync::Mutex<Sessions>,
+    capture: std::sync::Arc<capture::Capture>,
 }
 
 /// The session table and the counter that names its entries.
@@ -167,9 +168,62 @@ fn to_json<T: serde::Serialize>(value: &T) -> TinyBusResult<String> {
 // work for them to wait on.
 // `#[tinybus::interface]` requires `async fn`; all work under this boundary is
 // synchronous and changing these signatures would break the generated adapter.
-#[allow(clippy::unused_async, clippy::unused_async_trait_impl)]
+#[allow(
+    clippy::unused_async,
+    reason = "TinyBus interface methods require async signatures"
+)]
 #[tinybus::interface(name = "ai.tinyhumans.tinyvoice.Voice")]
 impl VoiceService {
+    /// Enumerate devices inside the module without opening a recording.
+    async fn list_input_devices(
+        &self,
+    ) -> TinyBusResult<tinyvoice_bus::capture::CaptureResult<Vec<String>>> {
+        let capture = self.capture.clone();
+        tokio::task::spawn_blocking(move || capture.devices())
+            .await
+            .map_err(|_| tinybus::Error::failed("capture worker failed"))
+    }
+    /// Open a native recording after an explicit permission decision.
+    async fn recording_start(
+        &self,
+        request: tinyvoice_bus::capture::RecordingStartRequest,
+    ) -> TinyBusResult<tinyvoice_bus::capture::CaptureResult<tinyvoice_bus::capture::CaptureHandle>>
+    {
+        let capture = self.capture.clone();
+        tokio::task::spawn_blocking(move || capture.start(request.permission))
+            .await
+            .map_err(|_| tinybus::Error::failed("capture worker failed"))
+    }
+    /// Finish and prepare the recording inside the module.
+    async fn recording_finish(
+        &self,
+        request: tinyvoice_bus::capture::RecordingFinishRequest,
+    ) -> TinyBusResult<tinyvoice_bus::capture::CaptureResult<tinyvoice_bus::capture::AudioOutput>>
+    {
+        Ok(self.capture.finish(request).await)
+    }
+    /// Stop and discard a native recording.
+    async fn recording_cancel(
+        &self,
+        handle: tinyvoice_bus::capture::CaptureHandle,
+    ) -> TinyBusResult<tinyvoice_bus::capture::CaptureResult<()>> {
+        Ok(self.capture.cancel(&handle).await)
+    }
+    /// Read at most one bounded base64 WAV batch.
+    async fn read_audio_output(
+        &self,
+        request: tinyvoice_bus::capture::ReadAudioRequest,
+    ) -> TinyBusResult<tinyvoice_bus::capture::CaptureResult<String>> {
+        Ok(self.capture.read(&request))
+    }
+    /// Release a held WAV, including when the host abandons it.
+    async fn release_audio_output(
+        &self,
+        handle: tinyvoice_bus::capture::CaptureHandle,
+    ) -> TinyBusResult<tinyvoice_bus::capture::CaptureResult<()>> {
+        Ok(self.capture.release(&handle))
+    }
+
     /// Classify a command transcript, returning a JSON `VoiceIntent`.
     ///
     /// The transcript should already have had any wake word removed by
@@ -514,9 +568,18 @@ tinybus_module::module_export_optional_static! {
         "EncodeWav",
         "EncodeWavPcm16",
         "PrepareCapture",
+        "ListInputDevices",
+        "RecordingStart",
+        "RecordingFinish",
+        "RecordingCancel",
+        "ReadAudioOutput",
+        "ReleaseAudioOutput",
+
     ],
     signals = [],
     requires = [],
     optional = [],
     lazy = false,
 }
+
+mod capture;

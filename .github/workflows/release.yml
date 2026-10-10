@@ -266,6 +266,10 @@ jobs:
           actual_target="$(rustc -vV | sed -n 's/^host: //p')"
           [[ "$actual_target" == "$EXPECTED_TARGET" ]]
 
+      - name: Install native capture development libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev
+
       - name: Build installable module
         run: cargo build --manifest-path crates/tinyvoice-module/Cargo.toml --locked --release --package tinyvoice-module
 

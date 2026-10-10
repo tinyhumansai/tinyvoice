@@ -665,3 +665,128 @@ async fn a_truncated_pcm16_buffer_is_refused() -> tinybus::Result<()> {
     assert!(error.to_string().contains("i16 samples"), "got: {error}");
     Ok(())
 }
+
+#[tokio::test]
+async fn native_capture_members_own_resources_and_return_bounded_wav_batches() -> tinybus::Result<()>
+{
+    use tinyvoice_bus::capture::{
+        AudioOutput, CaptureError, CaptureHandle, CaptureResult, MicrophonePermission,
+        ReadAudioRequest, RecordingFinishRequest, RecordingStartRequest,
+    };
+    let bus = MemoryBus::new();
+    let task = Broker::new().spawn(bus.clone());
+    let service = Connection::connect(bus.connect().await?).await?;
+    service
+        .serve_at(
+            OBJECT_PATH.try_into()?,
+            VoiceService {
+                capture: super::capture::fixture_capture(),
+                ..Default::default()
+            },
+        )
+        .await?;
+    service.request_name(BUS_NAME).await?;
+    let client = Connection::connect(bus.connect().await?).await?;
+    let proxy = client.proxy(BUS_NAME, OBJECT_PATH, BUS_NAME)?;
+    let devices: CaptureResult<Vec<String>> =
+        proxy.call(names::methods::LIST_INPUT_DEVICES, ()).await?;
+    assert_eq!(devices, Ok(vec!["fixture".into()]));
+    let denied: CaptureResult<CaptureHandle> = proxy
+        .call(
+            names::methods::RECORDING_START,
+            (RecordingStartRequest::default(),),
+        )
+        .await?;
+    assert_eq!(denied, Err(CaptureError::PermissionDenied));
+    let handle: CaptureResult<CaptureHandle> = proxy
+        .call(
+            names::methods::RECORDING_START,
+            (RecordingStartRequest {
+                permission: MicrophonePermission::Granted,
+            },),
+        )
+        .await?;
+    let handle = handle.unwrap();
+    let output: CaptureResult<AudioOutput> = proxy
+        .call(
+            names::methods::RECORDING_FINISH,
+            (RecordingFinishRequest {
+                handle,
+                gate_threshold: 0.0,
+            },),
+        )
+        .await?;
+    let output = output.unwrap();
+    let bytes: CaptureResult<String> = proxy
+        .call(
+            names::methods::READ_AUDIO_OUTPUT,
+            (ReadAudioRequest {
+                handle: output.handle.clone(),
+                offset: 0,
+                length: 256,
+            },),
+        )
+        .await?;
+    assert_eq!(BASE64.decode(bytes.unwrap()).unwrap().len(), 256);
+    let released: CaptureResult<()> = proxy
+        .call(
+            names::methods::RELEASE_AUDIO_OUTPUT,
+            (output.handle.clone(),),
+        )
+        .await?;
+    assert_eq!(released, Ok(()));
+    let missing: CaptureResult<String> = proxy
+        .call(
+            names::methods::READ_AUDIO_OUTPUT,
+            (ReadAudioRequest {
+                handle: output.handle,
+                offset: 0,
+                length: 1,
+            },),
+        )
+        .await?;
+    assert_eq!(missing, Err(CaptureError::UnknownHandle));
+    let handle: CaptureResult<CaptureHandle> = proxy
+        .call(
+            names::methods::RECORDING_START,
+            (RecordingStartRequest {
+                permission: MicrophonePermission::Granted,
+            },),
+        )
+        .await?;
+    let canceled: CaptureResult<()> = proxy
+        .call(names::methods::RECORDING_CANCEL, (handle.unwrap(),))
+        .await?;
+    assert_eq!(canceled, Ok(()));
+    task.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn prepare_capture_gates_inside_the_module_and_rejects_invalid_formats() -> tinybus::Result<()>
+{
+    let proxy = connect().await?;
+    let wav: String = proxy
+        .call(
+            names::methods::PREPARE_CAPTURE,
+            (encode_samples(&[0.25; 320]), 16_000_u32, 1_u16, 0.01_f32),
+        )
+        .await?;
+    assert_eq!(&BASE64.decode(wav).unwrap()[..4], b"RIFF");
+    for (samples, rate, channels) in [
+        ("invalid".to_string(), 16_000_u32, 1_u16),
+        (encode_samples(&[0.25]), 0, 1),
+        (encode_samples(&[0.25]), 16_000, 0),
+    ] {
+        assert!(
+            proxy
+                .call::<String>(
+                    names::methods::PREPARE_CAPTURE,
+                    (samples, rate, channels, 0.0_f32)
+                )
+                .await
+                .is_err()
+        );
+    }
+    Ok(())
+}

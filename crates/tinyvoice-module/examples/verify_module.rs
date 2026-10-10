@@ -55,6 +55,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    let declared: Vec<_> = info
+        .manifest
+        .provides
+        .iter()
+        .flat_map(|interface| interface.methods.iter())
+        .map(ToString::to_string)
+        .collect();
+    let mut declared = declared;
+    declared.sort_unstable();
+    if declared != tinyvoice_bus::METHODS {
+        return Err(io::Error::other("capture manifest differs from contract").into());
+    }
+    // Default-denied permission must reject before any native device is opened.
+    let denied: tinyvoice_bus::capture::CaptureResult<tinyvoice_bus::capture::CaptureHandle> =
+        proxy
+            .call(
+                "RecordingStart",
+                (tinyvoice_bus::capture::RecordingStartRequest::default(),),
+            )
+            .await?;
+    if denied != Err(tinyvoice_bus::capture::CaptureError::PermissionDenied) {
+        return Err(io::Error::other("module did not enforce permission decision").into());
+    }
+
     println!(
         "verified {} as TinyBus module `{}`",
         module.display(),

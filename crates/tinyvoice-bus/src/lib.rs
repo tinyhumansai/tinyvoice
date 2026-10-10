@@ -10,6 +10,7 @@
 //! behavior. Hosts own their connection and policies; `tinyvoice-module` owns
 //! the adapter; and the root `tinyvoice` crate remains host-agnostic.
 
+pub mod capture;
 pub mod intent;
 pub mod names;
 pub mod transcript;
