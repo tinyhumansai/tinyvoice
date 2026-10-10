@@ -33,6 +33,11 @@ The current module-release contract is in
 implementation sequence in
 [`plans/tinybus-module-release.md`](plans/tinybus-module-release.md).
 
+The approved hotkey ownership and lifecycle contract is in
+[`specs/hotkey-module-lifecycle.md`](specs/hotkey-module-lifecycle.md), with
+its implementation sequence in
+[`plans/hotkey-module-lifecycle.md`](plans/hotkey-module-lifecycle.md).
+
 ## Conventions
 
 - Keep every Markdown file at 500 lines or fewer. When a topic outgrows that,
