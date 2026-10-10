@@ -135,6 +135,7 @@ impl Hotkeys {
         Ok(handle)
     }
 
+    /// Start a reserved listener; failed setup leaves no running lease.
     pub(super) fn start(&self, request: &HotkeyHandleRequest) -> HotkeyResult<HotkeyReply> {
         validate_handle(&request.handle)?;
         let mut starts = self
@@ -409,6 +410,8 @@ impl Hotkeys {
         Ok(status)
     }
 
+    /// Close admission and stop listeners; cleanup errors retain their owners
+    /// so a later shutdown call can retry them.
     pub(super) fn shutdown(&self) -> HotkeyResult<HotkeyReply> {
         let mut starts = self
             .starts_in_progress

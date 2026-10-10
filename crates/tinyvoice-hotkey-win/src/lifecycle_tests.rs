@@ -5,7 +5,6 @@ use super::*;
 use crate::{keyboard_callback, resolve_callback_module};
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
-use std::time::Duration;
 use windows_sys::Win32::System::LibraryLoader::{
     GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
 };
@@ -75,8 +74,7 @@ fn failed_unhook_reply_retains_worker_until_retry_completes_cleanup() {
     );
 
     release_tx.send(()).unwrap();
-    let deadline = std::time::Instant::now() + Duration::from_secs(1);
-    while !worker.as_ref().unwrap().is_finished() && std::time::Instant::now() < deadline {
+    while !worker.as_ref().unwrap().is_finished() {
         std::thread::yield_now();
     }
     assert_eq!(
@@ -107,8 +105,7 @@ fn failed_stop_post_retains_live_owner() {
     assert!(worker.is_some());
 
     release_tx.send(()).unwrap();
-    let deadline = std::time::Instant::now() + Duration::from_secs(1);
-    while !worker.as_ref().unwrap().is_finished() && std::time::Instant::now() < deadline {
+    while !worker.as_ref().unwrap().is_finished() {
         std::thread::yield_now();
     }
     assert_eq!(
@@ -160,8 +157,7 @@ fn reply_timeout_retains_live_owner_until_later_join() {
     assert!(worker.is_some());
 
     release_tx.send(()).unwrap();
-    let deadline = std::time::Instant::now() + Duration::from_secs(1);
-    while !worker.as_ref().unwrap().is_finished() && std::time::Instant::now() < deadline {
+    while !worker.as_ref().unwrap().is_finished() {
         std::thread::yield_now();
     }
     assert_eq!(

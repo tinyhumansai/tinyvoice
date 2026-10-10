@@ -1,7 +1,7 @@
 # Module-owned native capture contract
 
-TinyVoice contract 1.3 adds eleven members while preserving every existing method's
-arity and wire format:
+The capture slice introduced in TinyVoice contract 1.3 adds eleven members
+while preserving every existing method's arity and wire format:
 
 | Member | One argument | Result |
 | --- | --- | --- |
@@ -42,7 +42,10 @@ request future does not release its BusyGuard while cleanup/preparation is pendi
 Workers retain ownership through completion even if a request future disappears.
 CaptureShutdown closes this capture instance permanently, marks pending startup
 and preparation canceled, discards outputs, drains live resources and awaits all
-native cleanup and worker completion. Reserve/start/finish then return Closed.
+native cleanup and worker completion. Reserve, RecordingStart, CaptureStart,
+and RecordingFinish then return Closed. Existing handle operations return
+UnknownHandle after shutdown has drained their handles; repeated CaptureShutdown
+is successful.
 The host must invoke CaptureShutdown before the generic TinyBus ABI shutdown: its
 runtime.shutdown_timeout alone does not await blocked native workers. Sign-out
 uses per-handle cancel/stop/release so the process module remains usable. Dropping

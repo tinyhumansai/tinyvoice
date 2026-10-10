@@ -23,6 +23,17 @@ fn local_xrecord_listener_cancels_blocked_reader_and_joins() {
 }
 
 #[test]
+fn record_listener_rejects_failed_ended_and_unexpected_start_replies() {
+    assert!(take_start_reply::<u8, ()>(None, |reply| *reply).is_err());
+    assert!(take_start_reply(Some(Err(())), |reply: &u8| *reply).is_err());
+    assert!(take_start_reply(Some(Ok::<u8, ()>(0)), |reply| *reply).is_err());
+    assert_eq!(
+        take_start_reply(Some(Ok::<u8, ()>(4)), |reply| *reply),
+        Ok(4)
+    );
+}
+
+#[test]
 fn autorepeat_release_press_pair_does_not_end_or_retoggle_activation() {
     let combo = tinyvoice::hotkey::parse_hotkey("space").expect("known key");
     let mut bytes = Vec::new();

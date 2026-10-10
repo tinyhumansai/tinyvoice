@@ -99,6 +99,8 @@ impl Capture {
             streams: Mutex::new(HashMap::new()),
         }
     }
+    /// Permanently close capture admission, discard outputs, and await owned
+    /// native cleanup and pending startup completion.
     pub(super) async fn shutdown(self: &Arc<Self>) -> CaptureResult<()> {
         // Freeze publication under the same lock used by startup workers.
         let pending = {

@@ -61,6 +61,10 @@ pub(super) fn start(request: &HotkeyRequest) -> Result<NativeListener, HotkeyErr
                 let _ = ready_tx.send(Err(()));
                 return;
             };
+            let Ok(_first_reply) = take_start_reply(replies.next(), |reply| reply.category) else {
+                let _ = ready_tx.send(Err(()));
+                return;
+            };
             let _ = ready_tx.send(Ok(()));
             let mut down = HashSet::new();
             while let Some(Ok(reply)) = replies.next() {
@@ -105,6 +109,23 @@ pub(super) fn start(request: &HotkeyRequest) -> Result<NativeListener, HotkeyErr
         closing,
         Box::new(owner),
     ))
+}
+
+fn take_start_reply<T, E>(
+    first: Option<Result<T, E>>,
+    category: impl FnOnce(&T) -> u8,
+) -> Result<T, ()> {
+    // X RECORD reports StartOfData only after the server accepted the enable
+    // request. Do not publish a running lease on a failed, ended, or unexpected
+    // first reply.
+    let Some(Ok(reply)) = first else {
+        return Err(());
+    };
+    if category(&reply) == 4 {
+        Ok(reply)
+    } else {
+        Err(())
+    }
 }
 
 fn create_record_context(control: &RustConnection, context: u32) -> Result<(), HotkeyError> {
