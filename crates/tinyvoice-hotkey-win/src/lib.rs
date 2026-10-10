@@ -5,6 +5,9 @@
 //! installing thread's message loop, reads the Windows-owned event pointer only
 //! during the callback, and forwards bounded facts with `try_send`. Stop is a
 //! message to that owner thread; success follows `UnhookWindowsHookEx` and join.
+//! A per-listener process-owned reaper retains the owner after final Drop when
+//! cleanup fails. TinyBus intentionally keeps mapped module images loaded until
+//! process exit, so the callback and reaper code remain mapped during cleanup.
 
 #![allow(unsafe_code)]
 
@@ -32,6 +35,7 @@ mod lifecycle;
 
 const STOP_MESSAGE: u32 = WM_APP + 0x41;
 const STOP_REPLY_TIMEOUT: Duration = Duration::from_secs(1);
+const REAPER_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 /// Physical Windows virtual-key chord in the existing TinyVoice key vocabulary.
 #[derive(Debug, Clone)]
@@ -49,13 +53,71 @@ pub struct Chord {
 pub struct HookError;
 
 /// An owned hook thread and its bounded activation fact receiver.
+///
+/// Explicit stop returns an error while retaining the owner for retry. Final
+/// drop transfers failed cleanup to a process-owned reaper instead of blocking
+/// the caller or detaching the Windows hook thread.
 #[derive(Debug)]
 pub struct Listener {
     events: Option<mpsc::Receiver<bool>>,
     overflow: Arc<AtomicBool>,
+    owner: Option<Box<dyn HookOwner>>,
+    reaper: Reaper,
+}
+
+#[derive(Debug)]
+struct Reaper {
+    sender: mpsc::Sender<Box<dyn HookOwner>>,
+    _worker: JoinHandle<()>,
+}
+
+trait HookOwner: std::fmt::Debug + Send {
+    fn stop(&mut self) -> Result<(), HookError>;
+}
+
+#[derive(Debug)]
+struct WindowsOwner {
     thread_id: u32,
     worker: Option<JoinHandle<Result<(), HookError>>>,
     replies: mpsc::Receiver<Result<(), HookError>>,
+}
+
+impl HookOwner for WindowsOwner {
+    fn stop(&mut self) -> Result<(), HookError> {
+        lifecycle::stop_worker(
+            &mut self.worker,
+            || unsafe { PostThreadMessageW(self.thread_id, STOP_MESSAGE, 0, 0) != 0 },
+            || {
+                self.replies
+                    .recv_timeout(STOP_REPLY_TIMEOUT)
+                    .map_err(|_| ())
+            },
+        )
+    }
+}
+
+fn spawn_reaper() -> Result<Reaper, HookError> {
+    let (sender, receiver) = mpsc::channel::<Box<dyn HookOwner>>();
+    let worker = thread::Builder::new()
+        .name("tinyvoice-hotkey-reaper".into())
+        .spawn(move || {
+            while let Ok(mut owner) = receiver.recv() {
+                loop {
+                    let stopped =
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| owner.stop()))
+                            .is_ok_and(|result| result.is_ok());
+                    if stopped {
+                        break;
+                    }
+                    thread::sleep(REAPER_RETRY_DELAY);
+                }
+            }
+        })
+        .map_err(|_| HookError)?;
+    Ok(Reaper {
+        sender,
+        _worker: worker,
+    })
 }
 
 impl Listener {
@@ -70,25 +132,22 @@ impl Listener {
 
     /// Unhooks on the owner thread and joins it before returning success.
     pub fn stop(&mut self) -> Result<(), HookError> {
-        lifecycle::stop_worker(
-            &mut self.worker,
-            || unsafe { PostThreadMessageW(self.thread_id, STOP_MESSAGE, 0, 0) != 0 },
-            || {
-                self.replies
-                    .recv_timeout(STOP_REPLY_TIMEOUT)
-                    .map_err(|_| ())
-            },
-        )
+        self.owner.as_mut().map_or(Ok(()), |owner| owner.stop())
     }
 }
 
 impl Drop for Listener {
     fn drop(&mut self) {
-        // If the owner is being destroyed, keep its code mapped until Windows
-        // confirms unregistration; an unbounded wait is safer than detaching a
-        // callback into an unloadable module.
-        while self.worker.is_some() && self.stop().is_err() {
-            thread::sleep(Duration::from_millis(50));
+        if let Some(owner) = self.owner.take()
+            && let Err(error) = self.reaper.sender.send(owner)
+        {
+            // The per-listener reaper is created before hook installation, so
+            // this is only a defensive fallback for an unexpectedly lost
+            // reaper thread. Preserve the owner and never silently detach it.
+            let mut owner = error.0;
+            while owner.stop().is_err() {
+                thread::sleep(REAPER_RETRY_DELAY);
+            }
         }
     }
 }
@@ -105,6 +164,9 @@ thread_local! { static CALLBACK: RefCell<Option<CallbackState>> = const { RefCel
 
 /// Start a dedicated owner thread, wait for hook registration, and return its lease.
 pub fn start(chord: Chord) -> Result<Listener, HookError> {
+    // Establish an owned cleanup path before installing a callback that could
+    // outlive the caller if synchronous cleanup later fails.
+    let reaper = spawn_reaper()?;
     let (events_tx, events) = mpsc::sync_channel(256);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let (reply_tx, replies) = mpsc::sync_channel(4);
@@ -141,9 +203,12 @@ pub fn start(chord: Chord) -> Result<Listener, HookError> {
     Ok(Listener {
         events: Some(events),
         overflow,
-        thread_id,
-        worker: Some(worker),
-        replies,
+        owner: Some(Box::new(WindowsOwner {
+            thread_id,
+            worker: Some(worker),
+            replies,
+        })),
+        reaper,
     })
 }
 
@@ -220,6 +285,10 @@ fn owner_loop(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "lib_tests.rs"]
+mod tests;
 
 fn callback_module() -> Result<HMODULE, HookError> {
     resolve_callback_module(|flags, address, module| unsafe {

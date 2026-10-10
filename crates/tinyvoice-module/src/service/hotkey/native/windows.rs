@@ -44,14 +44,6 @@ impl NativeOwner for WindowsOwner {
     }
 }
 
-impl Drop for WindowsOwner {
-    fn drop(&mut self) {
-        while self.stop().is_err() {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-    }
-}
-
 fn virtual_key(key: Key) -> Option<u32> {
     modifier_virtual_key(key)
         .or_else(|| navigation_virtual_key(key))
