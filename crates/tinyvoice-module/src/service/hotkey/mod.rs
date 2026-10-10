@@ -252,7 +252,6 @@ fn reset(lease: &mut Lease) {
     lease.continuity_lost = true;
     lease.reset_pending = true;
     lease.events.clear();
-    lease.pending_batch = None;
 }
 
 fn status(lease: &Lease) -> HotkeyStatus {

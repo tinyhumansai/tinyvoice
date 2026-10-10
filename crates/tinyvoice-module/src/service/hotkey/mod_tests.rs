@@ -126,6 +126,33 @@ fn sequence_gap_resets_push_state_until_a_fresh_release() {
 }
 
 #[test]
+fn acknowledging_prior_batch_after_host_gap_returns_reset_snapshot() {
+    let (hotkeys, handle, generation) = started(ActivationMode::Push);
+    feed(&hotkeys, &handle, generation, &[(1, HostKeyFact::Down)]);
+    let prior = hotkeys.read(&HotkeyReadRequest { handle: handle.clone(), acknowledged_batch: None }).unwrap();
+    assert!(prior.active);
+    assert_eq!(prior.events.len(), 1);
+
+    assert_eq!(
+        hotkeys.feed(&HotkeyFeedRequest {
+            handle: handle.clone(),
+            generation,
+            facts: vec![SequencedHostFact { sequence: 3, fact: HostKeyFact::Down }],
+            overflow: false,
+        }),
+        Err(HotkeyError::SequenceGap)
+    );
+
+    let reset = hotkeys.read(&HotkeyReadRequest {
+        handle: handle.clone(),
+        acknowledged_batch: Some(prior.batch),
+    }).expect("the outstanding batch acknowledgment remains valid across a gap");
+    assert!(reset.reset);
+    assert!(!reset.active);
+    assert!(reset.events.is_empty());
+}
+
+#[test]
 fn upstream_overflow_resets_active_listener_and_requires_release() {
     let (hotkeys, handle, generation) = started(ActivationMode::Push);
     assert!(feed(&hotkeys, &handle, generation, &[(1, HostKeyFact::Down)]).active);
