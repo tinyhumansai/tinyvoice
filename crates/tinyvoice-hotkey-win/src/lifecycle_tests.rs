@@ -22,7 +22,11 @@ fn stop_joins_an_owner_that_already_finished_after_unhook() {
         std::thread::yield_now();
     }
 
-    let result = stop_worker(&mut worker, || false, || panic!("finished owner has no reply"));
+    let result = stop_worker(
+        &mut worker,
+        || false,
+        || panic!("finished owner has no reply"),
+    );
 
     assert_eq!(result, Ok(()));
     assert!(worker.is_none());
@@ -32,7 +36,9 @@ fn stop_joins_an_owner_that_already_finished_after_unhook() {
 fn failed_unhook_reply_retains_worker_until_retry_completes_cleanup() {
     let (release_tx, release_rx) = mpsc::sync_channel::<()>(1);
     let mut worker = Some(std::thread::spawn(move || {
-        release_rx.recv().expect("fixture keeps the owner alive after unhook failure");
+        release_rx
+            .recv()
+            .expect("fixture keeps the owner alive after unhook failure");
         Ok(())
     }));
 
@@ -40,14 +46,24 @@ fn failed_unhook_reply_retains_worker_until_retry_completes_cleanup() {
         stop_worker(&mut worker, || true, || Ok(Err(HookError))),
         Err(HookError)
     );
-    assert!(worker.is_some(), "failed unhook cannot consume owner ownership");
+    assert!(
+        worker.is_some(),
+        "failed unhook cannot consume owner ownership"
+    );
 
     release_tx.send(()).unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(1);
     while !worker.as_ref().unwrap().is_finished() && std::time::Instant::now() < deadline {
         std::thread::yield_now();
     }
-    assert_eq!(stop_worker(&mut worker, || false, || panic!("finished owner has no reply")), Ok(()));
+    assert_eq!(
+        stop_worker(
+            &mut worker,
+            || false,
+            || panic!("finished owner has no reply")
+        ),
+        Ok(())
+    );
     assert!(worker.is_none());
 }
 
@@ -55,11 +71,16 @@ fn failed_unhook_reply_retains_worker_until_retry_completes_cleanup() {
 fn failed_stop_post_retains_live_owner() {
     let (release_tx, release_rx) = mpsc::sync_channel::<()>(1);
     let mut worker = Some(std::thread::spawn(move || {
-        release_rx.recv().expect("fixture keeps the owner alive after failed post");
+        release_rx
+            .recv()
+            .expect("fixture keeps the owner alive after failed post");
         Ok(())
     }));
 
-    assert_eq!(stop_worker(&mut worker, || false, || panic!("failed post has no reply")), Err(HookError));
+    assert_eq!(
+        stop_worker(&mut worker, || false, || panic!("failed post has no reply")),
+        Err(HookError)
+    );
     assert!(worker.is_some());
 
     release_tx.send(()).unwrap();
@@ -67,14 +88,23 @@ fn failed_stop_post_retains_live_owner() {
     while !worker.as_ref().unwrap().is_finished() && std::time::Instant::now() < deadline {
         std::thread::yield_now();
     }
-    assert_eq!(stop_worker(&mut worker, || false, || panic!("finished owner has no reply")), Ok(()));
+    assert_eq!(
+        stop_worker(
+            &mut worker,
+            || false,
+            || panic!("finished owner has no reply")
+        ),
+        Ok(())
+    );
 }
 
 #[test]
 fn successful_unhook_reply_joins_owner_before_acknowledging_stop() {
     let (release_tx, release_rx) = mpsc::sync_channel::<()>(1);
     let mut worker = Some(std::thread::spawn(move || {
-        release_rx.recv().expect("fixture waits for the successful unhook reply");
+        release_rx
+            .recv()
+            .expect("fixture waits for the successful unhook reply");
         Ok(())
     }));
 
@@ -94,11 +124,16 @@ fn successful_unhook_reply_joins_owner_before_acknowledging_stop() {
 fn reply_timeout_retains_live_owner_until_later_join() {
     let (release_tx, release_rx) = mpsc::sync_channel::<()>(1);
     let mut worker = Some(std::thread::spawn(move || {
-        release_rx.recv().expect("fixture keeps the owner alive after reply timeout");
+        release_rx
+            .recv()
+            .expect("fixture keeps the owner alive after reply timeout");
         Ok(())
     }));
 
-    assert_eq!(stop_worker(&mut worker, || true, || Err(())), Err(HookError));
+    assert_eq!(
+        stop_worker(&mut worker, || true, || Err(())),
+        Err(HookError)
+    );
     assert!(worker.is_some());
 
     release_tx.send(()).unwrap();
@@ -106,5 +141,12 @@ fn reply_timeout_retains_live_owner_until_later_join() {
     while !worker.as_ref().unwrap().is_finished() && std::time::Instant::now() < deadline {
         std::thread::yield_now();
     }
-    assert_eq!(stop_worker(&mut worker, || false, || panic!("finished owner has no reply")), Ok(()));
+    assert_eq!(
+        stop_worker(
+            &mut worker,
+            || false,
+            || panic!("finished owner has no reply")
+        ),
+        Ok(())
+    );
 }

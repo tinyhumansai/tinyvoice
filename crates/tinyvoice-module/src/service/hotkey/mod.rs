@@ -1,6 +1,9 @@
 //! Owned hotkey leases, activation sequencing, and replayable event batches.
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Mutex, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 use tinyvoice_bus::{
     ActivationMode, HotkeyBatch, HotkeyError, HotkeyEvent, HotkeyFeedRequest, HotkeyHandle,
     HotkeyHandleRequest, HotkeyReadRequest, HotkeyReply, HotkeyRequest, HotkeyReserveRequest,
@@ -46,22 +49,37 @@ pub(super) struct Hotkeys {
 }
 
 impl Default for Hotkeys {
-    fn default() -> Self { Self::with_backend(native::backend()) }
+    fn default() -> Self {
+        Self::with_backend(native::backend())
+    }
 }
 
 impl Hotkeys {
     fn with_backend(backend: std::sync::Arc<dyn native::Backend>) -> Self {
-        Self { closed: AtomicBool::new(false), next_generation: std::sync::atomic::AtomicU64::new(0), leases: Mutex::new(HashMap::new()), backend }
+        Self {
+            closed: AtomicBool::new(false),
+            next_generation: std::sync::atomic::AtomicU64::new(0),
+            leases: Mutex::new(HashMap::new()),
+            backend,
+        }
     }
     pub(super) fn reserve(&self, request: HotkeyReserveRequest) -> HotkeyResult<HotkeyHandle> {
         let request = request.request;
-        if request.key.is_empty() || request.key.len() > MAX_KEY_BYTES || self.closed.load(Ordering::SeqCst) {
-            return Err(if self.closed.load(Ordering::SeqCst) { HotkeyError::Closed } else { HotkeyError::InvalidRequest });
+        if request.key.is_empty()
+            || request.key.len() > MAX_KEY_BYTES
+            || self.closed.load(Ordering::SeqCst)
+        {
+            return Err(if self.closed.load(Ordering::SeqCst) {
+                HotkeyError::Closed
+            } else {
+                HotkeyError::InvalidRequest
+            });
         }
         // Use the existing parser so aliases and key spelling stay one contract.
         if request.source == HotkeySource::Native {
             #[cfg(feature = "native-hotkeys")]
-            tinyvoice::hotkey::parse_hotkey(&request.key).map_err(|_| HotkeyError::InvalidRequest)?;
+            tinyvoice::hotkey::parse_hotkey(&request.key)
+                .map_err(|_| HotkeyError::InvalidRequest)?;
             #[cfg(not(feature = "native-hotkeys"))]
             return Err(HotkeyError::Unsupported);
         } else if request.key != "Fn" && request.key != "fn" {
@@ -73,36 +91,68 @@ impl Hotkeys {
             HotkeyState::Stopped => false,
             _ => true,
         });
-        if leases.len() >= MAX_RESERVATIONS { return Err(HotkeyError::LimitExceeded); }
+        if leases.len() >= MAX_RESERVATIONS {
+            return Err(HotkeyError::LimitExceeded);
+        }
         let handle = new_handle()?;
-        leases.insert(handle.clone(), Lease {
-            request, created: std::time::Instant::now(), state: HotkeyState::Reserved,
-            generation: None, source_sequence: 0, last_feed: None, active: false,
-            armed: true, source_down: false, continuity_lost: false, event_sequence: 0, next_batch: 1,
-            events: VecDeque::new(), pending_batch: None, reset_pending: false, native: None,
-        });
+        leases.insert(
+            handle.clone(),
+            Lease {
+                request,
+                created: std::time::Instant::now(),
+                state: HotkeyState::Reserved,
+                generation: None,
+                source_sequence: 0,
+                last_feed: None,
+                active: false,
+                armed: true,
+                source_down: false,
+                continuity_lost: false,
+                event_sequence: 0,
+                next_batch: 1,
+                events: VecDeque::new(),
+                pending_batch: None,
+                reset_pending: false,
+                native: None,
+            },
+        );
         Ok(handle)
     }
 
     pub(super) fn start(&self, request: &HotkeyHandleRequest) -> HotkeyResult<HotkeyReply> {
         validate_handle(&request.handle)?;
         let mut leases = self.leases.lock().map_err(|_| HotkeyError::Closed)?;
-        if leases.get(&request.handle).is_some_and(|lease|
+        if leases.get(&request.handle).is_some_and(|lease| {
             lease.state == HotkeyState::Reserved && lease.created.elapsed() >= RESERVATION_TTL
-        ) {
+        }) {
             leases.remove(&request.handle);
             return Err(HotkeyError::UnknownHandle);
         }
-        let lease = leases.get_mut(&request.handle).ok_or(HotkeyError::UnknownHandle)?;
-        if lease.state == HotkeyState::Running { return Ok(status(lease)); }
-        if lease.state != HotkeyState::Reserved { return Err(HotkeyError::Closed); }
-        if self.closed.load(Ordering::SeqCst) { return Err(HotkeyError::Closed); }
-        let generation = self.next_generation.fetch_add(1, Ordering::SeqCst).checked_add(1).ok_or(HotkeyError::LimitExceeded)?;
+        let lease = leases
+            .get_mut(&request.handle)
+            .ok_or(HotkeyError::UnknownHandle)?;
+        if lease.state == HotkeyState::Running {
+            return Ok(status(lease));
+        }
+        if lease.state != HotkeyState::Reserved {
+            return Err(HotkeyError::Closed);
+        }
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(HotkeyError::Closed);
+        }
+        let generation = self
+            .next_generation
+            .fetch_add(1, Ordering::SeqCst)
+            .checked_add(1)
+            .ok_or(HotkeyError::LimitExceeded)?;
         if lease.request.source == HotkeySource::Native {
             lease.state = HotkeyState::Starting;
             match self.backend.start(&lease.request) {
                 Ok(listener) => lease.native = Some(listener),
-                Err(error) => { lease.state = HotkeyState::Reserved; return Err(error); }
+                Err(error) => {
+                    lease.state = HotkeyState::Reserved;
+                    return Err(error);
+                }
             }
         }
         lease.generation = Some(generation);
@@ -112,12 +162,22 @@ impl Hotkeys {
 
     pub(super) fn feed(&self, request: &HotkeyFeedRequest) -> HotkeyResult<HotkeyReply> {
         validate_handle(&request.handle)?;
-        if request.facts.len() > MAX_FEED_FACTS { return Err(HotkeyError::LimitExceeded); }
+        if request.facts.len() > MAX_FEED_FACTS {
+            return Err(HotkeyError::LimitExceeded);
+        }
         let mut leases = self.leases.lock().map_err(|_| HotkeyError::Closed)?;
-        let lease = leases.get_mut(&request.handle).ok_or(HotkeyError::UnknownHandle)?;
-        if lease.request.source != HotkeySource::Host { return Err(HotkeyError::InvalidRequest); }
-        if lease.state != HotkeyState::Running { return Err(HotkeyError::Closed); }
-        if lease.generation != Some(request.generation) { return Err(HotkeyError::StaleGeneration); }
+        let lease = leases
+            .get_mut(&request.handle)
+            .ok_or(HotkeyError::UnknownHandle)?;
+        if lease.request.source != HotkeySource::Host {
+            return Err(HotkeyError::InvalidRequest);
+        }
+        if lease.state != HotkeyState::Running {
+            return Err(HotkeyError::Closed);
+        }
+        if lease.generation != Some(request.generation) {
+            return Err(HotkeyError::StaleGeneration);
+        }
         let signature = (request.facts.clone(), request.overflow);
         if let Some((prior, prior_overflow)) = &lease.last_feed
             && prior == &request.facts
@@ -127,12 +187,17 @@ impl Hotkeys {
         }
         if request.overflow {
             reset(lease);
-            lease.source_sequence = request.facts.last().map_or(lease.source_sequence, |fact| fact.sequence);
+            lease.source_sequence = request
+                .facts
+                .last()
+                .map_or(lease.source_sequence, |fact| fact.sequence);
             lease.last_feed = Some(signature);
             return Ok(status(lease));
         }
         for fact in &request.facts {
-            if fact.sequence <= lease.source_sequence { return Err(HotkeyError::SequenceGap); }
+            if fact.sequence <= lease.source_sequence {
+                return Err(HotkeyError::SequenceGap);
+            }
             if fact.sequence != lease.source_sequence.saturating_add(1) {
                 reset(lease);
                 lease.source_sequence = fact.sequence;
@@ -149,18 +214,26 @@ impl Hotkeys {
     pub(super) fn read(&self, request: &HotkeyReadRequest) -> HotkeyResult<HotkeyBatch> {
         validate_handle(&request.handle)?;
         let mut leases = self.leases.lock().map_err(|_| HotkeyError::Closed)?;
-        let lease = leases.get_mut(&request.handle).ok_or(HotkeyError::UnknownHandle)?;
-        if lease.state != HotkeyState::Running { return Err(HotkeyError::Closed); }
-        let overflow = lease.native.as_ref().is_some_and(|listener| listener.overflow.swap(false, Ordering::SeqCst));
+        let lease = leases
+            .get_mut(&request.handle)
+            .ok_or(HotkeyError::UnknownHandle)?;
+        if lease.state != HotkeyState::Running {
+            return Err(HotkeyError::Closed);
+        }
+        let overflow = lease
+            .native
+            .as_ref()
+            .is_some_and(|listener| listener.overflow.swap(false, Ordering::SeqCst));
         if overflow {
             if let Some(listener) = lease.native.as_ref() {
                 while listener.events.try_recv().is_ok() {}
             }
             reset(lease);
-        }
-        else if let Some(listener) = lease.native.as_mut() {
+        } else if let Some(listener) = lease.native.as_mut() {
             let facts: Vec<_> = std::iter::from_fn(|| listener.events.try_recv().ok()).collect();
-            for down in facts { apply_fact(lease, down); }
+            for down in facts {
+                apply_fact(lease, down);
+            }
         }
         if let Some(batch) = &lease.pending_batch {
             match request.acknowledged_batch {
@@ -174,7 +247,11 @@ impl Hotkeys {
         let generation = lease.generation.ok_or(HotkeyError::Closed)?;
         let events: Vec<_> = lease.events.drain(..).collect();
         let batch = HotkeyBatch {
-            generation, batch: lease.next_batch, events, reset: std::mem::take(&mut lease.reset_pending), active: lease.active,
+            generation,
+            batch: lease.next_batch,
+            events,
+            reset: std::mem::take(&mut lease.reset_pending),
+            active: lease.active,
         };
         lease.next_batch = lease.next_batch.saturating_add(1);
         lease.pending_batch = Some(batch.clone());
@@ -184,9 +261,16 @@ impl Hotkeys {
     pub(super) fn stop(&self, request: &HotkeyHandleRequest) -> HotkeyResult<HotkeyReply> {
         validate_handle(&request.handle)?;
         let mut leases = self.leases.lock().map_err(|_| HotkeyError::Closed)?;
-        let lease = leases.get_mut(&request.handle).ok_or(HotkeyError::UnknownHandle)?;
-        if lease.state == HotkeyState::Running { reset(lease); lease.state = HotkeyState::Stopping; }
-        if lease.state == HotkeyState::Stopped { return Ok(status(lease)); }
+        let lease = leases
+            .get_mut(&request.handle)
+            .ok_or(HotkeyError::UnknownHandle)?;
+        if lease.state == HotkeyState::Running {
+            reset(lease);
+            lease.state = HotkeyState::Stopping;
+        }
+        if lease.state == HotkeyState::Stopped {
+            return Ok(status(lease));
+        }
         if let Some(listener) = lease.native.as_mut() {
             listener.stop()?;
             lease.native = None;
@@ -201,7 +285,10 @@ impl Hotkeys {
         self.closed.store(true, Ordering::SeqCst);
         let mut leases = self.leases.lock().map_err(|_| HotkeyError::Closed)?;
         for lease in leases.values_mut() {
-            if lease.state == HotkeyState::Running { reset(lease); lease.state = HotkeyState::Stopping; }
+            if lease.state == HotkeyState::Running {
+                reset(lease);
+                lease.state = HotkeyState::Stopping;
+            }
             if let Some(listener) = lease.native.as_mut() {
                 listener.stop()?;
                 lease.native = None;
@@ -209,29 +296,52 @@ impl Hotkeys {
             lease.state = HotkeyState::Stopped;
         }
         leases.clear();
-        Ok(HotkeyStatus { state: HotkeyState::Stopped, generation: None, active: false, continuity_lost: false })
+        Ok(HotkeyStatus {
+            state: HotkeyState::Stopped,
+            generation: None,
+            active: false,
+            continuity_lost: false,
+        })
     }
 }
 
 fn apply_fact(lease: &mut Lease, down: bool) {
     if !down {
         lease.source_down = false;
-        if !lease.armed { lease.armed = true; return; }
-        if lease.request.mode == ActivationMode::Push && lease.active { emit(lease, HotkeyEvent::Released); }
+        if !lease.armed {
+            lease.armed = true;
+            return;
+        }
+        if lease.request.mode == ActivationMode::Push && lease.active {
+            emit(lease, HotkeyEvent::Released);
+        }
         return;
     }
-    if lease.source_down { return; }
+    if lease.source_down {
+        return;
+    }
     lease.source_down = true;
-    if !lease.armed { return; }
+    if !lease.armed {
+        return;
+    }
     match lease.request.mode {
-        ActivationMode::Tap => emit(lease, if lease.active { HotkeyEvent::Released } else { HotkeyEvent::Pressed }),
+        ActivationMode::Tap => emit(
+            lease,
+            if lease.active {
+                HotkeyEvent::Released
+            } else {
+                HotkeyEvent::Pressed
+            },
+        ),
         ActivationMode::Push if !lease.active => emit(lease, HotkeyEvent::Pressed),
         ActivationMode::Push => {}
     }
 }
 
 fn validate_handle(handle: &HotkeyHandle) -> HotkeyResult<()> {
-    if handle.0.len() > MAX_HANDLE_BYTES { return Err(HotkeyError::LimitExceeded); }
+    if handle.0.len() > MAX_HANDLE_BYTES {
+        return Err(HotkeyError::LimitExceeded);
+    }
     Ok(())
 }
 
@@ -242,7 +352,11 @@ fn emit(lease: &mut Lease, event: HotkeyEvent) {
     }
     lease.active = event == HotkeyEvent::Pressed;
     lease.event_sequence = lease.event_sequence.saturating_add(1);
-    lease.events.push_back(SequencedHotkeyEvent { generation: lease.generation.unwrap_or_default(), sequence: lease.event_sequence, event });
+    lease.events.push_back(SequencedHotkeyEvent {
+        generation: lease.generation.unwrap_or_default(),
+        sequence: lease.event_sequence,
+        event,
+    });
 }
 
 fn reset(lease: &mut Lease) {
@@ -255,7 +369,12 @@ fn reset(lease: &mut Lease) {
 }
 
 fn status(lease: &Lease) -> HotkeyStatus {
-    HotkeyStatus { state: lease.state, generation: lease.generation, active: lease.active, continuity_lost: lease.continuity_lost }
+    HotkeyStatus {
+        state: lease.state,
+        generation: lease.generation,
+        active: lease.active,
+        continuity_lost: lease.continuity_lost,
+    }
 }
 
 fn new_handle() -> HotkeyResult<HotkeyHandle> {

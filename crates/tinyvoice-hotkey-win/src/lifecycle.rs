@@ -17,7 +17,12 @@ fn join_finished(
         return None;
     }
     let worker = worker.take()?;
-    Some(worker.join().map_err(|_| HookError).and_then(|result| result))
+    Some(
+        worker
+            .join()
+            .map_err(|_| HookError)
+            .and_then(|result| result),
+    )
 }
 
 pub(crate) fn stop_worker(
@@ -25,7 +30,9 @@ pub(crate) fn stop_worker(
     mut post_stop: impl FnMut() -> bool,
     mut receive_reply: impl FnMut() -> Result<Result<(), HookError>, ()>,
 ) -> Result<(), HookError> {
-    if worker.is_none() { return Ok(()); }
+    if worker.is_none() {
+        return Ok(());
+    }
     if let Some(result) = join_finished(worker) {
         return result;
     }
@@ -34,7 +41,9 @@ pub(crate) fn stop_worker(
     }
     match receive_reply() {
         Ok(Ok(())) => {
-            let Some(worker) = worker.take() else { return Ok(()); };
+            let Some(worker) = worker.take() else {
+                return Ok(());
+            };
             worker.join().map_err(|_| HookError)?
         }
         Ok(Err(error)) => Err(error),

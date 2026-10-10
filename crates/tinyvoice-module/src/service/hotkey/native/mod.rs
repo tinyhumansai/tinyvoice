@@ -19,20 +19,33 @@ pub(super) trait Backend: std::fmt::Debug + Send + Sync {
 }
 
 impl NativeListener {
-    pub(super) fn new(events: mpsc::Receiver<bool>, overflow: Arc<AtomicBool>, closing: Arc<AtomicBool>, owner: Box<dyn NativeOwner>) -> Self {
-        Self { events, overflow, closing, owner }
+    pub(super) fn new(
+        events: mpsc::Receiver<bool>,
+        overflow: Arc<AtomicBool>,
+        closing: Arc<AtomicBool>,
+        owner: Box<dyn NativeOwner>,
+    ) -> Self {
+        Self {
+            events,
+            overflow,
+            closing,
+            owner,
+        }
     }
 }
 
 impl NativeListener {
     pub(super) fn stop(&mut self) -> Result<(), HotkeyError> {
-        self.closing.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.closing
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         self.owner.stop()
     }
 }
 
 impl Drop for NativeListener {
-    fn drop(&mut self) { let _ = self.stop(); }
+    fn drop(&mut self) {
+        let _ = self.stop();
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -44,18 +57,32 @@ mod windows;
 struct PlatformBackend;
 
 impl Backend for PlatformBackend {
-    fn start(&self, request: &HotkeyRequest) -> Result<NativeListener, HotkeyError> { start_platform(request) }
+    fn start(&self, request: &HotkeyRequest) -> Result<NativeListener, HotkeyError> {
+        start_platform(request)
+    }
 }
 
-pub(super) fn backend() -> Arc<dyn Backend> { Arc::new(PlatformBackend) }
+pub(super) fn backend() -> Arc<dyn Backend> {
+    Arc::new(PlatformBackend)
+}
 
 fn start_platform(request: &HotkeyRequest) -> Result<NativeListener, HotkeyError> {
     #[cfg(target_os = "linux")]
-    { linux::start(request) }
+    {
+        linux::start(request)
+    }
     #[cfg(target_os = "windows")]
-    { windows::start(request) }
+    {
+        windows::start(request)
+    }
     #[cfg(target_os = "macos")]
-    { let _ = request; Err(HotkeyError::Unsupported) }
+    {
+        let _ = request;
+        Err(HotkeyError::Unsupported)
+    }
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-    { let _ = request; Err(HotkeyError::Unsupported) }
+    {
+        let _ = request;
+        Err(HotkeyError::Unsupported)
+    }
 }

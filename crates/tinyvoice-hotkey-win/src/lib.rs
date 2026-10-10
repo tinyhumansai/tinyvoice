@@ -9,16 +9,20 @@
 #![allow(unsafe_code)]
 
 use std::cell::RefCell;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}, mpsc};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+    mpsc,
+};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetMessageW, PeekMessageW, PostThreadMessageW, SetWindowsHookExW,
-    UnhookWindowsHookEx, HC_ACTION, KBDLLHOOKSTRUCT, MSG, PM_NOREMOVE, WH_KEYBOARD_LL,
-    WM_APP, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    CallNextHookEx, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, MSG, PM_NOREMOVE, PeekMessageW,
+    PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_APP, WM_KEYDOWN,
+    WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 mod lifecycle;
@@ -53,16 +57,24 @@ pub struct Listener {
 
 impl Listener {
     /// Receives the bounded activation facts observed by the hook callback.
-    pub fn take_events(&mut self) -> Option<mpsc::Receiver<bool>> { self.events.take() }
+    pub fn take_events(&mut self) -> Option<mpsc::Receiver<bool>> {
+        self.events.take()
+    }
     /// Shared overflow bit, set when bounded callback handoff fills.
-    pub fn overflow(&self) -> Arc<AtomicBool> { self.overflow.clone() }
+    pub fn overflow(&self) -> Arc<AtomicBool> {
+        self.overflow.clone()
+    }
 
     /// Unhooks on the owner thread and joins it before returning success.
     pub fn stop(&mut self) -> Result<(), HookError> {
         lifecycle::stop_worker(
             &mut self.worker,
             || unsafe { PostThreadMessageW(self.thread_id, STOP_MESSAGE, 0, 0) != 0 },
-            || self.replies.recv_timeout(STOP_REPLY_TIMEOUT).map_err(|_| ()),
+            || {
+                self.replies
+                    .recv_timeout(STOP_REPLY_TIMEOUT)
+                    .map_err(|_| ())
+            },
         )
     }
 }
@@ -72,7 +84,9 @@ impl Drop for Listener {
         // If the owner is being destroyed, keep its code mapped until Windows
         // confirms unregistration; an unbounded wait is safer than detaching a
         // callback into an unloadable module.
-        while self.worker.is_some() && self.stop().is_err() { thread::sleep(Duration::from_millis(50)); }
+        while self.worker.is_some() && self.stop().is_err() {
+            thread::sleep(Duration::from_millis(50));
+        }
     }
 }
 
@@ -94,18 +108,40 @@ pub fn start(chord: Chord) -> Result<Listener, HookError> {
     let overflow = Arc::new(AtomicBool::new(false));
     let worker_overflow = overflow.clone();
     let (thread_id_tx, thread_id_rx) = mpsc::sync_channel(1);
-    let worker = thread::Builder::new().name("tinyvoice-hotkey-win".into()).spawn(move || {
-        owner_loop(chord, events_tx, worker_overflow, ready_tx, reply_tx, thread_id_tx)
-    }).map_err(|_| HookError)?;
+    let worker = thread::Builder::new()
+        .name("tinyvoice-hotkey-win".into())
+        .spawn(move || {
+            owner_loop(
+                chord,
+                events_tx,
+                worker_overflow,
+                ready_tx,
+                reply_tx,
+                thread_id_tx,
+            )
+        })
+        .map_err(|_| HookError)?;
     let thread_id = match thread_id_rx.recv() {
         Ok(thread_id) => thread_id,
-        Err(_) => { let _ = worker.join(); return Err(HookError); }
+        Err(_) => {
+            let _ = worker.join();
+            return Err(HookError);
+        }
     };
     match ready_rx.recv() {
         Ok(Ok(())) => {}
-        _ => { let _ = worker.join(); return Err(HookError); }
+        _ => {
+            let _ = worker.join();
+            return Err(HookError);
+        }
     }
-    Ok(Listener { events: Some(events), overflow, thread_id, worker: Some(worker), replies })
+    Ok(Listener {
+        events: Some(events),
+        overflow,
+        thread_id,
+        worker: Some(worker),
+        replies,
+    })
 }
 
 fn owner_loop(
@@ -119,12 +155,24 @@ fn owner_loop(
     let thread_id = unsafe { GetCurrentThreadId() };
     let mut message = MSG::default();
     // Force creation of this thread's message queue before the handle is published.
-    unsafe { PeekMessageW(&mut message, std::ptr::null_mut(), 0, 0, PM_NOREMOVE); }
+    unsafe {
+        PeekMessageW(&mut message, std::ptr::null_mut(), 0, 0, PM_NOREMOVE);
+    }
     let _ = thread_id_sender.send(thread_id);
     let module = unsafe { GetModuleHandleW(std::ptr::null()) };
     let hook = unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_callback), module, 0) };
-    if hook.is_null() { let _ = ready.send(Err(HookError)); return Err(HookError); }
-    CALLBACK.with(|target| *target.borrow_mut() = Some(CallbackState { chord, pressed: [false; 256], sender, overflow: overflow.clone() }));
+    if hook.is_null() {
+        let _ = ready.send(Err(HookError));
+        return Err(HookError);
+    }
+    CALLBACK.with(|target| {
+        *target.borrow_mut() = Some(CallbackState {
+            chord,
+            pressed: [false; 256],
+            sender,
+            overflow: overflow.clone(),
+        })
+    });
     if ready.send(Ok(())).is_err() {
         let result = unsafe { UnhookWindowsHookEx(hook) };
         CALLBACK.with(|target| *target.borrow_mut() = None);
@@ -141,7 +189,9 @@ fn owner_loop(
                 return Ok(());
             }
             let _ = replies.try_send(Err(HookError));
-            if message_result < 0 { thread::sleep(Duration::from_millis(50)); }
+            if message_result < 0 {
+                thread::sleep(Duration::from_millis(50));
+            }
             continue;
         }
         if message.message == STOP_MESSAGE {
@@ -177,22 +227,42 @@ unsafe extern "system" fn keyboard_callback(code: i32, message: WPARAM, data: LP
                 if let Some(state) = target.borrow_mut().as_mut() {
                     let key = event.vkCode;
                     let index = key as usize;
-                    if index >= state.pressed.len() { return; }
+                    if index >= state.pressed.len() {
+                        return;
+                    }
                     if down {
                         let fresh = !state.pressed[index];
                         state.pressed[index] = true;
                         if fresh
                             && key == state.chord.trigger
-                            && state.chord.modifiers.iter().all(|modifier| state.pressed.get(*modifier as usize).copied().unwrap_or(false))
+                            && state.chord.modifiers.iter().all(|modifier| {
+                                state
+                                    .pressed
+                                    .get(*modifier as usize)
+                                    .copied()
+                                    .unwrap_or(false)
+                            })
                             && state.sender.try_send(true).is_err()
                         {
                             state.overflow.store(true, Ordering::SeqCst);
                         }
                     } else {
                         state.pressed[index] = false;
-                        if key == state.chord.trigger || (state.chord.push && state.chord.modifiers.contains(&key) && state.pressed.get(state.chord.trigger as usize).copied().unwrap_or(false)) {
-                            if state.chord.push && state.chord.modifiers.contains(&key) { state.pressed[state.chord.trigger as usize] = false; }
-                            if state.sender.try_send(false).is_err() { state.overflow.store(true, Ordering::SeqCst); }
+                        if key == state.chord.trigger
+                            || (state.chord.push
+                                && state.chord.modifiers.contains(&key)
+                                && state
+                                    .pressed
+                                    .get(state.chord.trigger as usize)
+                                    .copied()
+                                    .unwrap_or(false))
+                        {
+                            if state.chord.push && state.chord.modifiers.contains(&key) {
+                                state.pressed[state.chord.trigger as usize] = false;
+                            }
+                            if state.sender.try_send(false).is_err() {
+                                state.overflow.store(true, Ordering::SeqCst);
+                            }
                         }
                     }
                 }

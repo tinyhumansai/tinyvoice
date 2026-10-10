@@ -7,8 +7,10 @@ mod test;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use tinybus::{Connection, Result as TinyBusResult};
+use tinyvoice_bus::{
+    HotkeyFeedRequest, HotkeyHandleRequest, HotkeyReadRequest, HotkeyReserveRequest, HotkeyResult,
+};
 use tinyvoice_bus::{IndexedVadEvent, names};
-use tinyvoice_bus::{HotkeyFeedRequest, HotkeyHandleRequest, HotkeyReadRequest, HotkeyReserveRequest, HotkeyResult};
 
 use tinyvoice::audio::{self, SilenceGateConfig};
 use tinyvoice::intent;
@@ -589,34 +591,52 @@ impl VoiceService {
         Ok(BASE64.encode(wav))
     }
     /// Reserve bounded hotkey state before native listener startup.
-    async fn hotkey_reserve(&self, request: HotkeyReserveRequest) -> TinyBusResult<HotkeyResult<tinyvoice_bus::HotkeyHandle>> {
+    async fn hotkey_reserve(
+        &self,
+        request: HotkeyReserveRequest,
+    ) -> TinyBusResult<HotkeyResult<tinyvoice_bus::HotkeyHandle>> {
         Ok(self.hotkeys.reserve(request))
     }
     /// Start a reserved listener; retries return the same running lease.
-    async fn hotkey_start(&self, request: HotkeyHandleRequest) -> TinyBusResult<HotkeyResult<tinyvoice_bus::HotkeyReply>> {
+    async fn hotkey_start(
+        &self,
+        request: HotkeyHandleRequest,
+    ) -> TinyBusResult<HotkeyResult<tinyvoice_bus::HotkeyReply>> {
         let hotkeys = self.hotkeys.clone();
         tokio::task::spawn_blocking(move || hotkeys.start(&request))
-            .await.map_err(|_| tinybus::Error::failed("hotkey startup worker failed"))
+            .await
+            .map_err(|_| tinybus::Error::failed("hotkey startup worker failed"))
     }
     /// Read the retained oldest activation batch until it is acknowledged.
-    async fn hotkey_read(&self, request: HotkeyReadRequest) -> TinyBusResult<HotkeyResult<tinyvoice_bus::HotkeyBatch>> {
+    async fn hotkey_read(
+        &self,
+        request: HotkeyReadRequest,
+    ) -> TinyBusResult<HotkeyResult<tinyvoice_bus::HotkeyBatch>> {
         Ok(self.hotkeys.read(&request))
     }
     /// Feed generic, bounded host-owned key facts.
-    async fn hotkey_feed(&self, request: HotkeyFeedRequest) -> TinyBusResult<HotkeyResult<tinyvoice_bus::HotkeyReply>> {
+    async fn hotkey_feed(
+        &self,
+        request: HotkeyFeedRequest,
+    ) -> TinyBusResult<HotkeyResult<tinyvoice_bus::HotkeyReply>> {
         Ok(self.hotkeys.feed(&request))
     }
     /// Stop a listener after its owned cleanup completes.
-    async fn hotkey_stop(&self, request: HotkeyHandleRequest) -> TinyBusResult<HotkeyResult<tinyvoice_bus::HotkeyReply>> {
+    async fn hotkey_stop(
+        &self,
+        request: HotkeyHandleRequest,
+    ) -> TinyBusResult<HotkeyResult<tinyvoice_bus::HotkeyReply>> {
         let hotkeys = self.hotkeys.clone();
         tokio::task::spawn_blocking(move || hotkeys.stop(&request))
-            .await.map_err(|_| tinybus::Error::failed("hotkey cleanup worker failed"))
+            .await
+            .map_err(|_| tinybus::Error::failed("hotkey cleanup worker failed"))
     }
     /// Close admission and stop every listener before unloading the module.
     async fn hotkey_shutdown(&self) -> TinyBusResult<HotkeyResult<tinyvoice_bus::HotkeyReply>> {
         let hotkeys = self.hotkeys.clone();
         tokio::task::spawn_blocking(move || hotkeys.shutdown())
-            .await.map_err(|_| tinybus::Error::failed("hotkey shutdown worker failed"))
+            .await
+            .map_err(|_| tinybus::Error::failed("hotkey shutdown worker failed"))
     }
 }
 

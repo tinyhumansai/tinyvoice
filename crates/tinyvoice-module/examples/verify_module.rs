@@ -127,42 +127,80 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn verify_hotkeys(proxy: &tinybus::Proxy) -> Result<(), Box<dyn std::error::Error>> {
     let hotkey: tinyvoice_bus::HotkeyResult<tinyvoice_bus::HotkeyHandle> = proxy
-        .call(tinyvoice_bus::names::methods::HOTKEY_RESERVE, (host_hotkey_request(),))
+        .call(
+            tinyvoice_bus::names::methods::HOTKEY_RESERVE,
+            (host_hotkey_request(),),
+        )
         .await?;
-    let hotkey = hotkey.map_err(|error| io::Error::other(format!("hotkey reserve failed: {error:?}")))?;
-    let start_request = tinyvoice_bus::HotkeyHandleRequest { handle: hotkey.clone() };
+    let hotkey =
+        hotkey.map_err(|error| io::Error::other(format!("hotkey reserve failed: {error:?}")))?;
+    let start_request = tinyvoice_bus::HotkeyHandleRequest {
+        handle: hotkey.clone(),
+    };
     let started: tinyvoice_bus::HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy
-        .call(tinyvoice_bus::names::methods::HOTKEY_START, (start_request.clone(),))
+        .call(
+            tinyvoice_bus::names::methods::HOTKEY_START,
+            (start_request.clone(),),
+        )
         .await?;
-    let started = started.map_err(|error| io::Error::other(format!("hotkey start failed: {error:?}")))?;
+    let started =
+        started.map_err(|error| io::Error::other(format!("hotkey start failed: {error:?}")))?;
     let retried: tinyvoice_bus::HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy
-        .call(tinyvoice_bus::names::methods::HOTKEY_START, (start_request,))
+        .call(
+            tinyvoice_bus::names::methods::HOTKEY_START,
+            (start_request,),
+        )
         .await?;
-    if retried.map_err(|error| io::Error::other(format!("hotkey start retry failed: {error:?}")))? != started {
+    if retried.map_err(|error| io::Error::other(format!("hotkey start retry failed: {error:?}")))?
+        != started
+    {
         return Err(io::Error::other("hotkey start retry changed its generation or state").into());
     }
-    let generation = started.generation.ok_or_else(|| io::Error::other("hotkey start omitted generation"))?;
+    let generation = started
+        .generation
+        .ok_or_else(|| io::Error::other("hotkey start omitted generation"))?;
     let stale: tinyvoice_bus::HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy
-        .call(tinyvoice_bus::names::methods::HOTKEY_FEED, (feed_request(hotkey.clone(), generation.saturating_add(1), vec![]),))
+        .call(
+            tinyvoice_bus::names::methods::HOTKEY_FEED,
+            (feed_request(
+                hotkey.clone(),
+                generation.saturating_add(1),
+                vec![],
+            ),),
+        )
         .await?;
     if stale != Err(tinyvoice_bus::HotkeyError::StaleGeneration) {
         return Err(io::Error::other("hotkey feed accepted a stale generation").into());
     }
     verify_hotkey_replay(proxy, hotkey.clone(), generation).await?;
     let stopped: tinyvoice_bus::HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy
-        .call(tinyvoice_bus::names::methods::HOTKEY_STOP, (tinyvoice_bus::HotkeyHandleRequest { handle: hotkey },))
+        .call(
+            tinyvoice_bus::names::methods::HOTKEY_STOP,
+            (tinyvoice_bus::HotkeyHandleRequest { handle: hotkey },),
+        )
         .await?;
-    if stopped.map_err(|error| io::Error::other(format!("hotkey stop failed: {error:?}")))?.state != tinyvoice_bus::HotkeyState::Stopped {
+    if stopped
+        .map_err(|error| io::Error::other(format!("hotkey stop failed: {error:?}")))?
+        .state
+        != tinyvoice_bus::HotkeyState::Stopped
+    {
         return Err(io::Error::other("hotkey stop did not finish the lease").into());
     }
     let closed: tinyvoice_bus::HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy
         .call(tinyvoice_bus::names::methods::HOTKEY_SHUTDOWN, ())
         .await?;
-    if closed.map_err(|error| io::Error::other(format!("hotkey shutdown failed: {error:?}")))?.state != tinyvoice_bus::HotkeyState::Stopped {
+    if closed
+        .map_err(|error| io::Error::other(format!("hotkey shutdown failed: {error:?}")))?
+        .state
+        != tinyvoice_bus::HotkeyState::Stopped
+    {
         return Err(io::Error::other("hotkey shutdown did not finish").into());
     }
     let after_shutdown: tinyvoice_bus::HotkeyResult<tinyvoice_bus::HotkeyHandle> = proxy
-        .call(tinyvoice_bus::names::methods::HOTKEY_RESERVE, (host_hotkey_request(),))
+        .call(
+            tinyvoice_bus::names::methods::HOTKEY_RESERVE,
+            (host_hotkey_request(),),
+        )
         .await?;
     if after_shutdown != Err(tinyvoice_bus::HotkeyError::Closed) {
         return Err(io::Error::other("hotkey shutdown left admission open").into());
@@ -176,33 +214,69 @@ async fn verify_hotkey_replay(
     generation: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let facts = vec![
-        tinyvoice_bus::SequencedHostFact { sequence: 1, fact: tinyvoice_bus::HostKeyFact::Down },
-        tinyvoice_bus::SequencedHostFact { sequence: 2, fact: tinyvoice_bus::HostKeyFact::Up },
+        tinyvoice_bus::SequencedHostFact {
+            sequence: 1,
+            fact: tinyvoice_bus::HostKeyFact::Down,
+        },
+        tinyvoice_bus::SequencedHostFact {
+            sequence: 2,
+            fact: tinyvoice_bus::HostKeyFact::Up,
+        },
     ];
     let fed: tinyvoice_bus::HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy
-        .call(tinyvoice_bus::names::methods::HOTKEY_FEED, (feed_request(handle.clone(), generation, facts),))
+        .call(
+            tinyvoice_bus::names::methods::HOTKEY_FEED,
+            (feed_request(handle.clone(), generation, facts),),
+        )
         .await?;
     fed.map_err(|error| io::Error::other(format!("hotkey feed failed: {error:?}")))?;
-    let read_request = tinyvoice_bus::HotkeyReadRequest { handle: handle.clone(), acknowledged_batch: None };
+    let read_request = tinyvoice_bus::HotkeyReadRequest {
+        handle: handle.clone(),
+        acknowledged_batch: None,
+    };
     let first: tinyvoice_bus::HotkeyResult<tinyvoice_bus::HotkeyBatch> = proxy
-        .call(tinyvoice_bus::names::methods::HOTKEY_READ, (read_request.clone(),))
+        .call(
+            tinyvoice_bus::names::methods::HOTKEY_READ,
+            (read_request.clone(),),
+        )
         .await?;
-    let first = first.map_err(|error| io::Error::other(format!("hotkey read failed: {error:?}")))?;
+    let first =
+        first.map_err(|error| io::Error::other(format!("hotkey read failed: {error:?}")))?;
     let replay: tinyvoice_bus::HotkeyResult<tinyvoice_bus::HotkeyBatch> = proxy
         .call(tinyvoice_bus::names::methods::HOTKEY_READ, (read_request,))
         .await?;
-    if replay.map_err(|error| io::Error::other(format!("hotkey replay failed: {error:?}")))? != first
-        || first.events.iter().map(|event| event.event).collect::<Vec<_>>()
-            != [tinyvoice_bus::HotkeyEvent::Pressed, tinyvoice_bus::HotkeyEvent::Released]
+    if replay.map_err(|error| io::Error::other(format!("hotkey replay failed: {error:?}")))?
+        != first
+        || first
+            .events
+            .iter()
+            .map(|event| event.event)
+            .collect::<Vec<_>>()
+            != [
+                tinyvoice_bus::HotkeyEvent::Pressed,
+                tinyvoice_bus::HotkeyEvent::Released,
+            ]
     {
-        return Err(io::Error::other("hotkey read did not replay the ordered activation batch").into());
+        return Err(
+            io::Error::other("hotkey read did not replay the ordered activation batch").into(),
+        );
     }
     let ack: tinyvoice_bus::HotkeyResult<tinyvoice_bus::HotkeyBatch> = proxy
-        .call(tinyvoice_bus::names::methods::HOTKEY_READ, (tinyvoice_bus::HotkeyReadRequest { handle, acknowledged_batch: Some(first.batch) },))
+        .call(
+            tinyvoice_bus::names::methods::HOTKEY_READ,
+            (tinyvoice_bus::HotkeyReadRequest {
+                handle,
+                acknowledged_batch: Some(first.batch),
+            },),
+        )
         .await?;
-    let ack = ack.map_err(|error| io::Error::other(format!("hotkey acknowledgment failed: {error:?}")))?;
+    let ack =
+        ack.map_err(|error| io::Error::other(format!("hotkey acknowledgment failed: {error:?}")))?;
     if !ack.events.is_empty() || ack.active {
-        return Err(io::Error::other("hotkey acknowledgment did not advance to the inactive snapshot").into());
+        return Err(io::Error::other(
+            "hotkey acknowledgment did not advance to the inactive snapshot",
+        )
+        .into());
     }
     Ok(())
 }
@@ -222,7 +296,12 @@ fn feed_request(
     generation: u64,
     facts: Vec<tinyvoice_bus::SequencedHostFact>,
 ) -> tinyvoice_bus::HotkeyFeedRequest {
-    tinyvoice_bus::HotkeyFeedRequest { handle, generation, facts, overflow: false }
+    tinyvoice_bus::HotkeyFeedRequest {
+        handle,
+        generation,
+        facts,
+        overflow: false,
+    }
 }
 
 fn module_argument() -> Result<PathBuf, io::Error> {

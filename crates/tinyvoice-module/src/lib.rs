@@ -30,7 +30,7 @@
 //!
 //! The host owns product policy and composition. In particular, macOS hotkey
 //! feeds can be composed from approved Computer accessibility facts by the
-//! host; TinyVoice does not link Computer or own accessibility algorithms.
+//! host; `TinyVoice` does not link `Computer` or own accessibility algorithms.
 //!
 //! # Bounded session state
 //!

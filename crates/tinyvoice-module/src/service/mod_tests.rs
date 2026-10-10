@@ -19,8 +19,11 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use tinybus::broker::Broker;
 use tinybus::transport::memory::MemoryBus;
 use tinybus::{Connection, Interface};
+use tinyvoice_bus::{
+    ActivationMode, HostKeyFact, HotkeyFeedRequest, HotkeyHandleRequest, HotkeyReadRequest,
+    HotkeyRequest, HotkeyReserveRequest, HotkeySource, SequencedHostFact,
+};
 use tinyvoice_bus::{BUS_NAME, OBJECT_PATH, names};
-use tinyvoice_bus::{ActivationMode, HotkeyFeedRequest, HotkeyHandleRequest, HotkeyReadRequest, HotkeyRequest, HotkeyReserveRequest, HotkeySource, HostKeyFact, SequencedHostFact};
 
 /// A live bus with the interface served on it.
 ///
@@ -901,37 +904,77 @@ async fn capture_shutdown_is_terminal_over_the_bus() -> tinybus::Result<()> {
 async fn hotkey_contract_replays_events_and_shutdown_is_terminal() -> tinybus::Result<()> {
     use tinyvoice_bus::{HotkeyError, HotkeyResult};
     let proxy = connect().await?;
-    let reserved: HotkeyResult<tinyvoice_bus::HotkeyHandle> = proxy.call(
-        names::methods::HOTKEY_RESERVE,
-        (HotkeyReserveRequest { request: HotkeyRequest { key: "Fn".into(), mode: ActivationMode::Push, source: HotkeySource::Host } },),
-    ).await?;
+    let reserved: HotkeyResult<tinyvoice_bus::HotkeyHandle> = proxy
+        .call(
+            names::methods::HOTKEY_RESERVE,
+            (HotkeyReserveRequest {
+                request: HotkeyRequest {
+                    key: "Fn".into(),
+                    mode: ActivationMode::Push,
+                    source: HotkeySource::Host,
+                },
+            },),
+        )
+        .await?;
     let handle = reserved.unwrap();
-    let started: HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy.call(
-        names::methods::HOTKEY_START,
-        (HotkeyHandleRequest { handle: handle.clone() },),
-    ).await?;
+    let started: HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy
+        .call(
+            names::methods::HOTKEY_START,
+            (HotkeyHandleRequest {
+                handle: handle.clone(),
+            },),
+        )
+        .await?;
     let generation = started.unwrap().generation.unwrap();
-    let fed: HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy.call(
-        names::methods::HOTKEY_FEED,
-        (HotkeyFeedRequest { handle: handle.clone(), generation, facts: vec![SequencedHostFact { sequence: 1, fact: HostKeyFact::Down }], overflow: false },),
-    ).await?;
+    let fed: HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy
+        .call(
+            names::methods::HOTKEY_FEED,
+            (HotkeyFeedRequest {
+                handle: handle.clone(),
+                generation,
+                facts: vec![SequencedHostFact {
+                    sequence: 1,
+                    fact: HostKeyFact::Down,
+                }],
+                overflow: false,
+            },),
+        )
+        .await?;
     assert!(fed.unwrap().active);
-    let read = HotkeyReadRequest { handle: handle.clone(), acknowledged_batch: None };
-    let first: HotkeyResult<tinyvoice_bus::HotkeyBatch> = proxy.call(names::methods::HOTKEY_READ, (read.clone(),)).await?;
+    let read = HotkeyReadRequest {
+        handle: handle.clone(),
+        acknowledged_batch: None,
+    };
+    let first: HotkeyResult<tinyvoice_bus::HotkeyBatch> = proxy
+        .call(names::methods::HOTKEY_READ, (read.clone(),))
+        .await?;
     let first = first.unwrap();
     assert_eq!(first.events[0].event, tinyvoice_bus::HotkeyEvent::Pressed);
-    let replay: HotkeyResult<tinyvoice_bus::HotkeyBatch> = proxy.call(names::methods::HOTKEY_READ, (read,)).await?;
+    let replay: HotkeyResult<tinyvoice_bus::HotkeyBatch> =
+        proxy.call(names::methods::HOTKEY_READ, (read,)).await?;
     assert_eq!(replay.unwrap(), first);
-    let stopped: HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy.call(
-        names::methods::HOTKEY_STOP, (HotkeyHandleRequest { handle },),
-    ).await?;
+    let stopped: HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy
+        .call(
+            names::methods::HOTKEY_STOP,
+            (HotkeyHandleRequest { handle },),
+        )
+        .await?;
     assert_eq!(stopped.unwrap().state, tinyvoice_bus::HotkeyState::Stopped);
-    let shutdown: HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy.call(names::methods::HOTKEY_SHUTDOWN, ()).await?;
+    let shutdown: HotkeyResult<tinyvoice_bus::HotkeyReply> =
+        proxy.call(names::methods::HOTKEY_SHUTDOWN, ()).await?;
     assert_eq!(shutdown.unwrap().state, tinyvoice_bus::HotkeyState::Stopped);
-    let after: HotkeyResult<tinyvoice_bus::HotkeyHandle> = proxy.call(
-        names::methods::HOTKEY_RESERVE,
-        (HotkeyReserveRequest { request: HotkeyRequest { key: "Fn".into(), mode: ActivationMode::Tap, source: HotkeySource::Host } },),
-    ).await?;
+    let after: HotkeyResult<tinyvoice_bus::HotkeyHandle> = proxy
+        .call(
+            names::methods::HOTKEY_RESERVE,
+            (HotkeyReserveRequest {
+                request: HotkeyRequest {
+                    key: "Fn".into(),
+                    mode: ActivationMode::Tap,
+                    source: HotkeySource::Host,
+                },
+            },),
+        )
+        .await?;
     assert_eq!(after, Err(HotkeyError::Closed));
     Ok(())
 }
