@@ -2,9 +2,13 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
+use crate::{keyboard_callback, resolve_callback_module};
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
 use std::time::Duration;
+use windows_sys::Win32::System::LibraryLoader::{
+    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+};
 
 #[test]
 fn unexpected_message_loop_exit_marks_continuity_lost() {
@@ -13,6 +17,25 @@ fn unexpected_message_loop_exit_marks_continuity_lost() {
     assert!(!overflow.load(Ordering::SeqCst));
     mark_unexpected_exit(0, &overflow);
     assert!(overflow.load(Ordering::SeqCst));
+}
+
+#[test]
+fn hook_registration_resolves_the_module_containing_its_callback() {
+    let callback_address = keyboard_callback as *const () as *const u16;
+    let expected_module = std::ptr::NonNull::<std::ffi::c_void>::dangling().as_ptr();
+    let module = resolve_callback_module(|flags, address, output| {
+        assert_eq!(address, callback_address);
+        assert_eq!(
+            flags,
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT
+        );
+        // SAFETY: the helper provides a valid out pointer and the fixture only
+        // writes a non-null sentinel HMODULE value to verify the lookup result.
+        unsafe { *output = expected_module };
+        1
+    });
+
+    assert_eq!(module, Ok(expected_module));
 }
 
 #[test]

@@ -16,8 +16,11 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
-use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::Foundation::{HMODULE, LPARAM, LRESULT, WPARAM};
+use windows_sys::Win32::System::LibraryLoader::{
+    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+    GetModuleHandleExW,
+};
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetMessageW, HC_ACTION, KBDLLHOOKSTRUCT, MSG, PM_NOREMOVE, PeekMessageW,
@@ -159,7 +162,10 @@ fn owner_loop(
         PeekMessageW(&mut message, std::ptr::null_mut(), 0, 0, PM_NOREMOVE);
     }
     let _ = thread_id_sender.send(thread_id);
-    let module = unsafe { GetModuleHandleW(std::ptr::null()) };
+    let Ok(module) = callback_module() else {
+        let _ = ready.send(Err(HookError));
+        return Err(HookError);
+    };
     let hook = unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_callback), module, 0) };
     if hook.is_null() {
         let _ = ready.send(Err(HookError));
@@ -213,6 +219,28 @@ fn owner_loop(
             let _ = replies.try_send(Err(HookError));
         }
     }
+}
+
+fn callback_module() -> Result<HMODULE, HookError> {
+    resolve_callback_module(|flags, address, module| unsafe {
+        GetModuleHandleExW(flags, address, module)
+    })
+}
+
+fn resolve_callback_module(
+    lookup: impl FnOnce(u32, *const u16, *mut HMODULE) -> i32,
+) -> Result<HMODULE, HookError> {
+    let mut module = std::ptr::null_mut();
+    // FROM_ADDRESS makes this pointer an address inside the module, not a
+    // string. The hook must be attributed to the DLL containing its callback,
+    // rather than the process executable that GetModuleHandleW(NULL) returns.
+    let address = keyboard_callback as *const () as *const u16;
+    let flags =
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
+    if lookup(flags, address, &mut module) == 0 || module.is_null() {
+        return Err(HookError);
+    }
+    Ok(module)
 }
 
 unsafe extern "system" fn keyboard_callback(code: i32, message: WPARAM, data: LPARAM) -> LRESULT {

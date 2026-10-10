@@ -53,17 +53,55 @@ impl Drop for WindowsOwner {
 }
 
 fn virtual_key(key: Key) -> Option<u32> {
+    modifier_virtual_key(key)
+        .or_else(|| navigation_virtual_key(key))
+        .or_else(|| function_virtual_key(key))
+        .or_else(|| printable_virtual_key(key))
+        .or_else(|| keypad_virtual_key(key))
+}
+
+fn modifier_virtual_key(key: Key) -> Option<u32> {
     Some(match key {
         Key::Alt => 0xA4,
         Key::AltGr => 0xA5,
-        Key::Backspace => 0x08,
-        Key::CapsLock => 0x14,
         Key::ControlLeft => 0xA2,
         Key::ControlRight => 0xA3,
+        Key::MetaLeft => 0x5B,
+        Key::MetaRight => 0x5C,
+        Key::ShiftLeft => 0xA0,
+        Key::ShiftRight => 0xA1,
+        _ => return None,
+    })
+}
+
+fn navigation_virtual_key(key: Key) -> Option<u32> {
+    Some(match key {
+        Key::Backspace => 0x08,
+        Key::CapsLock => 0x14,
         Key::Delete => 0x2E,
         Key::DownArrow => 0x28,
         Key::End => 0x23,
         Key::Escape => 0x1B,
+        Key::Home => 0x24,
+        Key::LeftArrow => 0x25,
+        Key::PageDown => 0x22,
+        Key::PageUp => 0x21,
+        Key::RightArrow => 0x27,
+        Key::Space => 0x20,
+        Key::Tab => 0x09,
+        Key::UpArrow => 0x26,
+        Key::PrintScreen => 0x2C,
+        Key::ScrollLock => 0x91,
+        Key::Pause => 0x13,
+        Key::NumLock => 0x90,
+        Key::Insert => 0x2D,
+        Key::Return => 0x0D,
+        _ => return None,
+    })
+}
+
+fn function_virtual_key(key: Key) -> Option<u32> {
+    Some(match key {
         Key::F1 => 0x70,
         Key::F2 => 0x71,
         Key::F3 => 0x72,
@@ -76,23 +114,12 @@ fn virtual_key(key: Key) -> Option<u32> {
         Key::F10 => 0x79,
         Key::F11 => 0x7A,
         Key::F12 => 0x7B,
-        Key::Home => 0x24,
-        Key::LeftArrow => 0x25,
-        Key::MetaLeft => 0x5B,
-        Key::MetaRight => 0x5C,
-        Key::PageDown => 0x22,
-        Key::PageUp => 0x21,
-        Key::Return | Key::KpReturn => 0x0D,
-        Key::RightArrow => 0x27,
-        Key::ShiftLeft => 0xA0,
-        Key::ShiftRight => 0xA1,
-        Key::Space => 0x20,
-        Key::Tab => 0x09,
-        Key::UpArrow => 0x26,
-        Key::PrintScreen => 0x2C,
-        Key::ScrollLock => 0x91,
-        Key::Pause => 0x13,
-        Key::NumLock => 0x90,
+        _ => return None,
+    })
+}
+
+fn printable_virtual_key(key: Key) -> Option<u32> {
+    Some(match key {
         Key::BackQuote => 0xC0,
         Key::Num0 => 0x30,
         Key::Num1 => 0x31,
@@ -106,32 +133,32 @@ fn virtual_key(key: Key) -> Option<u32> {
         Key::Num9 => 0x39,
         Key::Minus => 0xBD,
         Key::Equal => 0xBB,
-        Key::KeyA => b'A' as u32,
-        Key::KeyB => b'B' as u32,
-        Key::KeyC => b'C' as u32,
-        Key::KeyD => b'D' as u32,
-        Key::KeyE => b'E' as u32,
-        Key::KeyF => b'F' as u32,
-        Key::KeyG => b'G' as u32,
-        Key::KeyH => b'H' as u32,
-        Key::KeyI => b'I' as u32,
-        Key::KeyJ => b'J' as u32,
-        Key::KeyK => b'K' as u32,
-        Key::KeyL => b'L' as u32,
-        Key::KeyM => b'M' as u32,
-        Key::KeyN => b'N' as u32,
-        Key::KeyO => b'O' as u32,
-        Key::KeyP => b'P' as u32,
-        Key::KeyQ => b'Q' as u32,
-        Key::KeyR => b'R' as u32,
-        Key::KeyS => b'S' as u32,
-        Key::KeyT => b'T' as u32,
-        Key::KeyU => b'U' as u32,
-        Key::KeyV => b'V' as u32,
-        Key::KeyW => b'W' as u32,
-        Key::KeyX => b'X' as u32,
-        Key::KeyY => b'Y' as u32,
-        Key::KeyZ => b'Z' as u32,
+        Key::KeyA => u32::from(b'A'),
+        Key::KeyB => u32::from(b'B'),
+        Key::KeyC => u32::from(b'C'),
+        Key::KeyD => u32::from(b'D'),
+        Key::KeyE => u32::from(b'E'),
+        Key::KeyF => u32::from(b'F'),
+        Key::KeyG => u32::from(b'G'),
+        Key::KeyH => u32::from(b'H'),
+        Key::KeyI => u32::from(b'I'),
+        Key::KeyJ => u32::from(b'J'),
+        Key::KeyK => u32::from(b'K'),
+        Key::KeyL => u32::from(b'L'),
+        Key::KeyM => u32::from(b'M'),
+        Key::KeyN => u32::from(b'N'),
+        Key::KeyO => u32::from(b'O'),
+        Key::KeyP => u32::from(b'P'),
+        Key::KeyQ => u32::from(b'Q'),
+        Key::KeyR => u32::from(b'R'),
+        Key::KeyS => u32::from(b'S'),
+        Key::KeyT => u32::from(b'T'),
+        Key::KeyU => u32::from(b'U'),
+        Key::KeyV => u32::from(b'V'),
+        Key::KeyW => u32::from(b'W'),
+        Key::KeyX => u32::from(b'X'),
+        Key::KeyY => u32::from(b'Y'),
+        Key::KeyZ => u32::from(b'Z'),
         Key::LeftBracket => 0xDB,
         Key::RightBracket => 0xDD,
         Key::SemiColon => 0xBA,
@@ -141,7 +168,13 @@ fn virtual_key(key: Key) -> Option<u32> {
         Key::Comma => 0xBC,
         Key::Dot => 0xBE,
         Key::Slash => 0xBF,
-        Key::Insert => 0x2D,
+        _ => return None,
+    })
+}
+
+fn keypad_virtual_key(key: Key) -> Option<u32> {
+    Some(match key {
+        Key::KpReturn => 0x0D,
         Key::KpMinus => 0x6D,
         Key::KpPlus => 0x6B,
         Key::KpMultiply => 0x6A,
@@ -157,7 +190,7 @@ fn virtual_key(key: Key) -> Option<u32> {
         Key::Kp8 => 0x68,
         Key::Kp9 => 0x69,
         Key::KpDelete => 0x6E,
-        Key::Function | Key::Unknown(_) => return None,
+        _ => return None,
     })
 }
 
