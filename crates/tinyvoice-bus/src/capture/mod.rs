@@ -14,11 +14,14 @@ pub enum MicrophonePermission {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct CaptureHandle(pub String);
-/// Start a recording using an explicit permission decision.
+/// Reserve or start capture using an explicit permission decision.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RecordingStartRequest {
     /// Permission granted through the computer module.
     pub permission: MicrophonePermission,
+    /// Module-generated reservation obtained before starting native setup.
+    #[serde(default)]
+    pub handle: Option<CaptureHandle>,
 }
 /// Finish capture and run the module's existing preparation pipeline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +34,7 @@ pub struct RecordingFinishRequest {
 /// Prepared WAV held inside the module for bounded reads.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AudioOutput {
-    /// Lease released with `ReleaseAudioOutput`.
+    /// Caller-known recording lease, released with `ReleaseAudioOutput`.
     pub handle: CaptureHandle,
     /// WAV bytes available.
     pub length: usize,
@@ -52,6 +55,10 @@ pub struct ReadAudioRequest {
 pub enum CaptureError {
     /// Permission was not explicitly granted.
     PermissionDenied,
+    /// Startup was canceled before its resource was delivered.
+    Cancelled,
+    /// Capture shutdown has closed this module instance.
+    Closed,
     /// A recording or finishing operation already owns the device slot.
     Busy,
     /// The recording or output handle is unknown or released.

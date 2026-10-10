@@ -4,7 +4,7 @@ This package contains the native `tinyvoice` module for TinyBus module ABI v1.
 Install only the archive matching the host operating system and architecture.
 
 The module claims `ai.tinyhumans.tinyvoice.Voice`, serves the object at
-`/ai/tinyhumans/tinyvoice/Voice`, and provides 24 methods under contract 1.2.
+`/ai/tinyhumans/tinyvoice/Voice`, and provides 26 methods under contract 1.3.
 
 ## Methods
 
@@ -26,12 +26,14 @@ The module claims `ai.tinyhumans.tinyvoice.Voice`, serves the object at
 | `EncodeWavPcm16` | `samples` (`i16`), `sample_rate`, `channels` | base64 WAV, samples unchanged |
 | `PrepareCapture` | `samples`, `source_rate`, `channels`, `gate_threshold` | base64 WAV |
 | `ListInputDevices` | none | structured result of device names |
-| `RecordingStart` | permission request | opaque recording handle |
+| `CaptureShutdown` | none | await native shutdown, terminal for this instance |
+| `ReserveCapture` | permission request | known reservation handle |
+| `RecordingStart` | permission and reserved handle | opaque recording handle |
 | `RecordingFinish` | handle, gate threshold in one request | bounded WAV output handle and length |
 | `RecordingCancel` | handle | structured result of unit |
 | `ReadAudioOutput` | handle, offset, length in one request | base64 WAV slice |
 | `ReleaseAudioOutput` | handle | structured result of unit |
-| `CaptureStart` | permission request | opaque stream handle and native format |
+| `CaptureStart` | permission and reserved handle | opaque stream handle and native format |
 | `CapturePoll` | handle, max_chunks in one request | ordered raw chunks and closed flag |
 | `CaptureStop` | handle | structured result after native thread shutdown |
 

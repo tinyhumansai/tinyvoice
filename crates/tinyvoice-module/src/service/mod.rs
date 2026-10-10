@@ -35,22 +35,13 @@ pub const MAX_AUDIO_BYTES: usize = 8 * 1024 * 1024;
 /// Generous relative to real use: a host runs one always-on loop.
 pub const MAX_SESSIONS: usize = 64;
 
-/// The served object.
+/// Voice operations served by the compiled module.
 ///
-/// Almost every method is a pure function of its arguments. The exception is
-/// the VAD, which is a state machine over successive frames and therefore needs
-/// somewhere to live between calls — hence its one field.
-///
-/// # Why the VAD gets a session and nothing else does
-///
-/// A stateless `Segment` exists too, and it is the right call for a recording
-/// that is already complete. It cannot serve a live capture loop: a batch that
-/// cuts an utterance in half loses the open segment, and a loop that re-sent
-/// everything each time would do quadratic work to avoid holding one enum.
-///
-/// The state here is deliberately tiny — a `VadSegmenter` is two `u32`s and a
-/// config — so a session costs a map entry, not a buffer. The audio itself
-/// stays with the host, which is already accumulating it.
+/// Pure audio, intent and transcript methods have no persistent state. VAD
+/// segmenters retain utterance state across frame batches, while capture owns
+/// reservations, native recording/stream leases and bounded prepared outputs.
+/// Native setup and cleanup run in owned workers; hosts use `CaptureShutdown`
+/// before stopping the module and per-handle cleanup when signing out.
 #[derive(Debug, Default)]
 pub struct VoiceService {
     /// Live segmenters, keyed by the id `VadOpen` handed out.
@@ -92,6 +83,23 @@ fn decode_audio(encoded: &str) -> TinyBusResult<Vec<u8>> {
     BASE64
         .decode(encoded)
         .map_err(|e| tinybus::Error::failed(format!("audio payload is not valid base64: {e}")))
+}
+
+/// Bound resampling before allocating its output, including serialized float output.
+fn check_expansion(samples: usize, source_rate: u32) -> TinyBusResult<()> {
+    if source_rate == 0 {
+        return Err(failed(&tinyvoice::Error::ZeroSampleRate));
+    }
+    let expanded = samples
+        .checked_mul(audio::STT_SAMPLE_RATE as usize)
+        .map(|count| count.div_ceil(source_rate as usize))
+        .ok_or_else(|| tinybus::Error::failed("audio expansion exceeds the output limit"))?;
+    if expanded > MAX_AUDIO_BYTES / 4 {
+        return Err(tinybus::Error::failed(
+            "audio expansion exceeds the output limit",
+        ));
+    }
+    Ok(())
 }
 
 /// Reinterpret a little-endian byte buffer as `f32` samples.
@@ -178,16 +186,31 @@ impl VoiceService {
             .await
             .map_err(|_| tinybus::Error::failed("capture worker failed"))
     }
+    /// Close capture, cancel pending work and await all native cleanup.
+    async fn capture_shutdown(&self) -> TinyBusResult<tinyvoice_bus::capture::CaptureResult<()>> {
+        Ok(self.capture.shutdown().await)
+    }
+    /// Obtain a known cancellation handle before beginning native device setup.
+    async fn reserve_capture(
+        &self,
+        request: tinyvoice_bus::capture::RecordingStartRequest,
+    ) -> TinyBusResult<tinyvoice_bus::capture::CaptureResult<tinyvoice_bus::capture::CaptureHandle>>
+    {
+        Ok(self.capture.reserve(request.permission))
+    }
     /// Start native continuous capture after a computer-module permission grant.
     async fn capture_start(
         &self,
         request: tinyvoice_bus::capture::RecordingStartRequest,
     ) -> TinyBusResult<tinyvoice_bus::capture::CaptureResult<tinyvoice_bus::capture::CaptureStream>>
     {
-        let capture = self.capture.clone();
-        tokio::task::spawn_blocking(move || capture.stream_start(request.permission))
-            .await
-            .map_err(|_| tinybus::Error::failed("capture start worker failed"))
+        match self.capture.start_reserved(request, true).await {
+            Ok(capture::Started::Stream(stream)) => Ok(Ok(stream)),
+            Err(error) => Ok(Err(error)),
+            Ok(capture::Started::Recording(_)) => {
+                Ok(Err(tinyvoice_bus::capture::CaptureError::InvalidParameters))
+            }
+        }
     }
     /// Read at most two native chunks without blocking or per-sample requests.
     async fn capture_poll(
@@ -210,10 +233,13 @@ impl VoiceService {
         request: tinyvoice_bus::capture::RecordingStartRequest,
     ) -> TinyBusResult<tinyvoice_bus::capture::CaptureResult<tinyvoice_bus::capture::CaptureHandle>>
     {
-        let capture = self.capture.clone();
-        tokio::task::spawn_blocking(move || capture.start(request.permission))
-            .await
-            .map_err(|_| tinybus::Error::failed("capture worker failed"))
+        match self.capture.start_reserved(request, false).await {
+            Ok(capture::Started::Recording(handle)) => Ok(Ok(handle)),
+            Err(error) => Ok(Err(error)),
+            Ok(capture::Started::Stream(_)) => {
+                Ok(Err(tinyvoice_bus::capture::CaptureError::InvalidParameters))
+            }
+        }
     }
     /// Finish and prepare the recording inside the module.
     async fn recording_finish(
@@ -304,7 +330,7 @@ impl VoiceService {
     /// caller streaming a long recording must submit whole utterances rather
     /// than arbitrary slices — a batch that cuts an utterance in half loses the
     /// open segment. That is the cost of a stateless interface, and it is the
-    /// reason a realtime host should link the library instead.
+    /// reason a realtime host uses the module's stateful VAD methods instead.
     async fn segment(
         &self,
         config: String,
@@ -442,6 +468,7 @@ impl VoiceService {
     ) -> TinyBusResult<String> {
         let raw = f32_samples(&decode_audio(&samples)?)?;
         let mono = audio::to_mono(&raw, channels).map_err(|e| failed(&e))?;
+        check_expansion(mono.len(), source_rate)?;
         let resampled =
             audio::resample(&mono, source_rate, audio::STT_SAMPLE_RATE).map_err(|e| failed(&e))?;
         Ok(encode_samples(&resampled))
@@ -533,6 +560,7 @@ impl VoiceService {
     ) -> TinyBusResult<String> {
         let raw = f32_samples(&decode_audio(&samples)?)?;
         let mono = audio::to_mono(&raw, channels).map_err(|e| failed(&e))?;
+        check_expansion(mono.len(), source_rate)?;
         let resampled =
             audio::resample(&mono, source_rate, audio::STT_SAMPLE_RATE).map_err(|e| failed(&e))?;
 
@@ -589,11 +617,13 @@ tinybus_module::module_export_optional_static! {
         "CaptureStart",
         "CapturePoll",
         "CaptureStop",
+        "CaptureShutdown",
         "EncodeWav",
         "EncodeWavPcm16",
         "PrepareCapture",
         "ListInputDevices",
         "RecordingStart",
+        "ReserveCapture",
         "RecordingFinish",
         "RecordingCancel",
         "ReadAudioOutput",

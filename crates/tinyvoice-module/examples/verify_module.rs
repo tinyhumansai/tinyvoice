@@ -95,6 +95,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    let denied: tinyvoice_bus::capture::CaptureResult<tinyvoice_bus::capture::CaptureHandle> =
+        proxy
+            .call(
+                tinyvoice_bus::names::methods::RESERVE_CAPTURE,
+                (tinyvoice_bus::capture::RecordingStartRequest::default(),),
+            )
+            .await?;
+    if !matches!(
+        denied,
+        Err(tinyvoice_bus::capture::CaptureError::PermissionDenied)
+    ) {
+        return Err(io::Error::other("reservation did not refuse missing permission").into());
+    }
+    let closed: tinyvoice_bus::capture::CaptureResult<()> = proxy
+        .call(tinyvoice_bus::names::methods::CAPTURE_SHUTDOWN, ())
+        .await?;
+    if closed.is_err() {
+        return Err(io::Error::other("capture shutdown failed").into());
+    }
     println!(
         "verified {} as TinyBus module `{}`",
         module.display(),

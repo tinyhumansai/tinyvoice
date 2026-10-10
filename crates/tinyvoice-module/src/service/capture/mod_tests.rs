@@ -419,7 +419,7 @@ async fn failed_stream_shutdown_releases_device_capacity() -> CaptureResult<()> 
                     drops: backend.drops.clone(),
                     fail_stop: true,
                 }),
-                busy: BusyGuard(capture.busy.clone()),
+                busy: BusyGuard(capture.busy.clone(), capture.idle.clone()),
             },
         );
     assert_eq!(
@@ -476,4 +476,669 @@ async fn poisoned_stream_state_fails_closed_and_drops_unregistered_capture() -> 
         Err(CaptureError::Device(_))
     ));
     Ok(())
+}
+
+#[derive(Debug)]
+struct PendingRecording(tokio::sync::oneshot::Receiver<()>);
+impl Recording for PendingRecording {
+    fn finish(self: Box<Self>) -> RecordingFuture {
+        Box::pin(async move {
+            let _ = self.0.await;
+            Ok(RawRecording {
+                samples: vec![0.25; 320],
+                source_rate: 16_000,
+                channels: 1,
+            })
+        })
+    }
+}
+#[tokio::test]
+async fn dropping_cancel_future_keeps_device_busy_until_cleanup_completes() -> CaptureResult<()> {
+    let (capture, _) = fixture(false);
+    let handle = capture.start(MicrophonePermission::Granted)?;
+    let (done, pending) = tokio::sync::oneshot::channel();
+    capture
+        .recordings
+        .lock()
+        .map_err(|_| state_error())?
+        .get_mut(&handle)
+        .ok_or(CaptureError::UnknownHandle)?
+        .recording = Box::new(PendingRecording(pending));
+    let mut cancel = Box::pin(capture.cancel(&handle));
+    std::future::poll_fn(|cx| {
+        assert!(cancel.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    drop(cancel);
+    assert_eq!(
+        capture.start(MicrophonePermission::Granted),
+        Err(CaptureError::Busy)
+    );
+    let _ = done.send(());
+    while capture.busy.load(Ordering::SeqCst) {
+        tokio::task::yield_now().await;
+    }
+    let next = capture.start(MicrophonePermission::Granted)?;
+    capture.cancel(&next).await?;
+    Ok(())
+}
+
+#[derive(Debug)]
+struct DelayedBackend {
+    entered: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    proceed: Mutex<std::sync::mpsc::Receiver<()>>,
+    drops: Arc<AtomicUsize>,
+}
+impl Backend for DelayedBackend {
+    fn devices(&self) -> Result<Vec<String>, String> {
+        Ok(vec![])
+    }
+    fn start(&self) -> Result<Box<dyn Recording>, String> {
+        if let Some(entered) = self
+            .entered
+            .lock()
+            .map_err(|error| error.to_string())?
+            .take()
+        {
+            let _ = entered.send(());
+        }
+        self.proceed
+            .lock()
+            .map_err(|error| error.to_string())?
+            .recv()
+            .map_err(|error| error.to_string())?;
+        Ok(Box::new(RecordingFixture(self.drops.clone())))
+    }
+    fn stream(&self) -> Result<(tinyvoice_bus::capture::CaptureFormat, Box<dyn Stream>), String> {
+        Err("fixture stream unavailable".into())
+    }
+}
+#[tokio::test]
+async fn abandoned_start_has_a_known_cancel_handle_and_waits_for_native_cleanup()
+-> CaptureResult<()> {
+    let (entered, startup) = tokio::sync::oneshot::channel();
+    let (proceed, blocked) = std::sync::mpsc::channel();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let capture = Arc::new(Capture::new(Arc::new(DelayedBackend {
+        entered: Mutex::new(Some(entered)),
+        proceed: Mutex::new(blocked),
+        drops: drops.clone(),
+    })));
+    let handle = capture.reserve(MicrophonePermission::Granted)?;
+    let service = crate::service::VoiceService {
+        capture: capture.clone(),
+        ..Default::default()
+    };
+    let mut start = Box::pin(service.recording_start(RecordingStartRequest {
+        permission: MicrophonePermission::Granted,
+        handle: Some(handle.clone()),
+    }));
+    std::future::poll_fn(|cx| {
+        assert!(start.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    startup.await.map_err(|_| state_error())?;
+    drop(start);
+    let mut cancel = Box::pin(capture.cancel(&handle));
+    std::future::poll_fn(|cx| {
+        assert!(cancel.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    assert!(capture.busy.load(Ordering::SeqCst));
+    proceed.send(()).map_err(|_| state_error())?;
+    cancel.await?;
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    assert!(!capture.busy.load(Ordering::SeqCst));
+    assert!(
+        capture
+            .recordings
+            .lock()
+            .map_err(|_| state_error())?
+            .is_empty()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn abandoned_finish_keeps_capacity_and_known_output_can_be_released_before_delivery()
+-> CaptureResult<()> {
+    let (capture, _) = fixture(false);
+    let handle = capture.start(MicrophonePermission::Granted)?;
+    let (done, pending) = tokio::sync::oneshot::channel();
+    capture
+        .recordings
+        .lock()
+        .map_err(|_| state_error())?
+        .get_mut(&handle)
+        .ok_or(CaptureError::UnknownHandle)?
+        .recording = Box::new(PendingRecording(pending));
+    let mut finish = Box::pin(capture.finish(RecordingFinishRequest {
+        handle: handle.clone(),
+        gate_threshold: 0.0,
+    }));
+    std::future::poll_fn(|cx| {
+        assert!(finish.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    drop(finish);
+    assert_eq!(
+        capture.start(MicrophonePermission::Granted),
+        Err(CaptureError::Busy)
+    );
+    capture.release(&handle)?;
+    let _ = done.send(());
+    while capture.busy.load(Ordering::SeqCst) {
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        capture
+            .outputs
+            .lock()
+            .map_err(|_| state_error())?
+            .is_empty()
+    );
+    assert!(
+        capture
+            .finishing
+            .lock()
+            .map_err(|_| state_error())?
+            .is_empty()
+    );
+    let handle = capture.start(MicrophonePermission::Granted)?;
+    let output = capture
+        .finish(RecordingFinishRequest {
+            handle: handle.clone(),
+            gate_threshold: 0.0,
+        })
+        .await?;
+    assert_eq!(output.handle, handle);
+    capture.release(&handle)?;
+    Ok(())
+}
+#[derive(Debug)]
+struct PendingStream(tokio::sync::oneshot::Receiver<()>);
+impl Stream for PendingStream {
+    fn poll(&mut self, _: usize) -> CaptureResult<CaptureBatch> {
+        Ok(CaptureBatch::default())
+    }
+    fn stop(self: Box<Self>) -> StreamFuture {
+        Box::pin(async move {
+            let _ = self.0.await;
+            Ok(())
+        })
+    }
+}
+#[tokio::test]
+async fn abandoned_stream_stop_keeps_device_busy_until_native_cleanup() -> CaptureResult<()> {
+    let (capture, _) = fixture(false);
+    let stream = capture.stream_start(MicrophonePermission::Granted)?;
+    let (done, pending) = tokio::sync::oneshot::channel();
+    capture
+        .streams
+        .lock()
+        .map_err(|_| state_error())?
+        .get_mut(&stream.handle)
+        .ok_or(CaptureError::UnknownHandle)?
+        .stream = Box::new(PendingStream(pending));
+    let mut stop = Box::pin(capture.stream_stop(&stream.handle));
+    std::future::poll_fn(|cx| {
+        assert!(stop.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    drop(stop);
+    assert_eq!(
+        capture.stream_start(MicrophonePermission::Granted).err(),
+        Some(CaptureError::Busy)
+    );
+    let _ = done.send(());
+    while capture.busy.load(Ordering::SeqCst) {
+        tokio::task::yield_now().await;
+    }
+    let stream = capture.stream_start(MicrophonePermission::Granted)?;
+    capture.stream_stop(&stream.handle).await?;
+    Ok(())
+}
+#[tokio::test]
+async fn abandoned_reservations_are_bounded_expire_and_never_hold_device_capacity()
+-> CaptureResult<()> {
+    let capture = Arc::new(fixture_capture());
+    assert_eq!(
+        capture.reserve(MicrophonePermission::Denied),
+        Err(CaptureError::PermissionDenied)
+    );
+    let handle = capture.reserve(MicrophonePermission::Granted)?;
+    let live = capture.start(MicrophonePermission::Granted)?;
+    capture.cancel(&live).await?;
+    for _ in 1..MAX_RESERVATIONS {
+        capture.reserve(MicrophonePermission::Granted)?;
+    }
+    assert_eq!(
+        capture.reserve(MicrophonePermission::Granted),
+        Err(CaptureError::LimitExceeded)
+    );
+    capture
+        .reservations
+        .lock()
+        .map_err(|_| state_error())?
+        .values_mut()
+        .for_each(|reservation| reservation.created -= RESERVATION_TTL);
+    assert_eq!(
+        capture
+            .start_reserved(
+                RecordingStartRequest {
+                    permission: MicrophonePermission::Granted,
+                    handle: Some(handle)
+                },
+                false
+            )
+            .await
+            .err(),
+        Some(CaptureError::UnknownHandle)
+    );
+    let handle = capture.reserve(MicrophonePermission::Granted)?;
+    assert_eq!(
+        capture
+            .reservations
+            .lock()
+            .map_err(|_| state_error())?
+            .len(),
+        1
+    );
+    capture.cancel(&handle).await?;
+    assert!(
+        capture
+            .reservations
+            .lock()
+            .map_err(|_| state_error())?
+            .is_empty()
+    );
+    assert!(!capture.busy.load(Ordering::SeqCst));
+    Ok(())
+}
+#[tokio::test]
+async fn reserved_start_rejects_missing_unknown_and_repeated_handles_and_recovers_setup_errors()
+-> CaptureResult<()> {
+    let capture = Arc::new(fixture_capture());
+    assert_eq!(
+        capture
+            .start_reserved(RecordingStartRequest::default(), false)
+            .await
+            .err(),
+        Some(CaptureError::PermissionDenied)
+    );
+    assert_eq!(
+        capture
+            .start_reserved(
+                RecordingStartRequest {
+                    permission: MicrophonePermission::Granted,
+                    handle: None
+                },
+                false
+            )
+            .await
+            .err(),
+        Some(CaptureError::InvalidParameters)
+    );
+    assert_eq!(
+        capture
+            .start_reserved(
+                RecordingStartRequest {
+                    permission: MicrophonePermission::Granted,
+                    handle: Some(CaptureHandle("unknown".into()))
+                },
+                false
+            )
+            .await
+            .err(),
+        Some(CaptureError::UnknownHandle)
+    );
+    let handle = capture.reserve(MicrophonePermission::Granted)?;
+    let request = RecordingStartRequest {
+        permission: MicrophonePermission::Granted,
+        handle: Some(handle.clone()),
+    };
+    let started = capture.start_reserved(request.clone(), false).await?;
+    assert!(matches!(started, Started::Recording(_)));
+    assert_eq!(
+        capture.start_reserved(request, false).await.err(),
+        Some(CaptureError::UnknownHandle)
+    );
+    capture.cancel(&handle).await?;
+    let capture = Arc::new(fixture(true).0);
+    for stream in [false, true] {
+        let handle = capture.reserve(MicrophonePermission::Granted)?;
+        assert!(matches!(
+            capture
+                .start_reserved(
+                    RecordingStartRequest {
+                        permission: MicrophonePermission::Granted,
+                        handle: Some(handle)
+                    },
+                    stream
+                )
+                .await,
+            Err(CaptureError::Device(_))
+        ));
+        assert!(!capture.busy.load(Ordering::SeqCst));
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn shutdown_waits_for_delayed_start_and_prevents_publication() -> CaptureResult<()> {
+    let (entered, startup) = tokio::sync::oneshot::channel();
+    let (proceed, blocked) = std::sync::mpsc::channel();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let capture = Arc::new(Capture::new(Arc::new(DelayedBackend {
+        entered: Mutex::new(Some(entered)),
+        proceed: Mutex::new(blocked),
+        drops: drops.clone(),
+    })));
+    let handle = capture.reserve(MicrophonePermission::Granted)?;
+    let request = RecordingStartRequest {
+        permission: MicrophonePermission::Granted,
+        handle: Some(handle.clone()),
+    };
+    let mut start = Box::pin(capture.start_reserved(request.clone(), false));
+    std::future::poll_fn(|cx| {
+        assert!(start.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    startup.await.map_err(|_| state_error())?;
+    assert_eq!(
+        capture.start_reserved(request.clone(), false).await.err(),
+        Some(CaptureError::Busy)
+    );
+    let other = capture.reserve(MicrophonePermission::Granted)?;
+    assert_eq!(
+        capture
+            .start_reserved(
+                RecordingStartRequest {
+                    permission: MicrophonePermission::Granted,
+                    handle: Some(other)
+                },
+                false
+            )
+            .await
+            .err(),
+        Some(CaptureError::Busy)
+    );
+    let mut shutdown = Box::pin(capture.shutdown());
+    std::future::poll_fn(|cx| {
+        assert!(shutdown.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    assert!(capture.busy.load(Ordering::SeqCst));
+    assert_eq!(
+        capture.reserve(MicrophonePermission::Granted),
+        Err(CaptureError::Closed)
+    );
+    assert_eq!(
+        capture.start_reserved(request, false).await.err(),
+        Some(CaptureError::Closed)
+    );
+    proceed.send(()).map_err(|_| state_error())?;
+    assert_eq!(start.await.err(), Some(CaptureError::Cancelled));
+    shutdown.await?;
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    assert!(
+        capture
+            .recordings
+            .lock()
+            .map_err(|_| state_error())?
+            .is_empty()
+    );
+    assert!(
+        capture
+            .reservations
+            .lock()
+            .map_err(|_| state_error())?
+            .is_empty()
+    );
+    Ok(())
+}
+#[tokio::test]
+async fn shutdown_waits_for_detached_finish_cancel_and_stop_workers() -> CaptureResult<()> {
+    for operation in ["finish", "cancel", "stop"] {
+        let capture = Arc::new(fixture_capture());
+        let (done, pending) = tokio::sync::oneshot::channel();
+        let handle = if operation == "stop" {
+            let stream = capture.stream_start(MicrophonePermission::Granted)?;
+            capture
+                .streams
+                .lock()
+                .map_err(|_| state_error())?
+                .get_mut(&stream.handle)
+                .ok_or(CaptureError::UnknownHandle)?
+                .stream = Box::new(PendingStream(pending));
+            stream.handle
+        } else {
+            let handle = capture.start(MicrophonePermission::Granted)?;
+            capture
+                .recordings
+                .lock()
+                .map_err(|_| state_error())?
+                .get_mut(&handle)
+                .ok_or(CaptureError::UnknownHandle)?
+                .recording = Box::new(PendingRecording(pending));
+            handle
+        };
+        let mut work: Pin<Box<dyn Future<Output = CaptureResult<()>>>> = match operation {
+            "finish" => Box::pin(async {
+                capture
+                    .finish(RecordingFinishRequest {
+                        handle: handle.clone(),
+                        gate_threshold: 0.0,
+                    })
+                    .await
+                    .map(|_| ())
+            }),
+            "cancel" => Box::pin(capture.cancel(&handle)),
+            _ => Box::pin(capture.stream_stop(&handle)),
+        };
+        std::future::poll_fn(|cx| {
+            assert!(work.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        drop(work);
+        // Reproduce the stale notification from a predecessor guard.
+        capture.idle.send_replace(true);
+        let mut shutdown = Box::pin(capture.shutdown());
+        std::future::poll_fn(|cx| {
+            assert!(shutdown.as_mut().poll(cx).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        done.send(()).map_err(|()| state_error())?;
+        shutdown.await?;
+        assert!(
+            capture
+                .outputs
+                .lock()
+                .map_err(|_| state_error())?
+                .is_empty()
+        );
+        assert!(
+            capture
+                .finishing
+                .lock()
+                .map_err(|_| state_error())?
+                .is_empty()
+        );
+        assert!(!capture.busy.load(Ordering::SeqCst));
+        assert_eq!(
+            capture
+                .finish(RecordingFinishRequest {
+                    handle,
+                    gate_threshold: 0.0
+                })
+                .await,
+            Err(CaptureError::Closed)
+        );
+    }
+    Ok(())
+}
+#[tokio::test]
+async fn shutdown_drains_live_resources_and_idle_reservations() -> CaptureResult<()> {
+    for stream in [false, true] {
+        let capture = Arc::new(fixture_capture());
+        let handle = capture.reserve(MicrophonePermission::Granted)?;
+        capture
+            .start_reserved(
+                RecordingStartRequest {
+                    permission: MicrophonePermission::Granted,
+                    handle: Some(handle),
+                },
+                stream,
+            )
+            .await?;
+        capture.reserve(MicrophonePermission::Granted)?;
+        capture.shutdown().await?;
+        capture.shutdown().await?;
+        assert!(
+            capture
+                .recordings
+                .lock()
+                .map_err(|_| state_error())?
+                .is_empty()
+        );
+        assert!(
+            capture
+                .streams
+                .lock()
+                .map_err(|_| state_error())?
+                .is_empty()
+        );
+        assert!(
+            capture
+                .reservations
+                .lock()
+                .map_err(|_| state_error())?
+                .is_empty()
+        );
+        assert_eq!(
+            capture.start(MicrophonePermission::Granted),
+            Err(CaptureError::Closed)
+        );
+        assert_eq!(
+            capture.stream_start(MicrophonePermission::Granted).err(),
+            Some(CaptureError::Closed)
+        );
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct DelayedPreparation {
+    entered: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    proceed: Mutex<std::sync::mpsc::Receiver<()>>,
+    fixture: Arc<Fixture>,
+}
+impl Backend for DelayedPreparation {
+    fn devices(&self) -> Result<Vec<String>, String> {
+        self.fixture.devices()
+    }
+    fn start(&self) -> Result<Box<dyn Recording>, String> {
+        self.fixture.start()
+    }
+    fn stream(&self) -> Result<(tinyvoice_bus::capture::CaptureFormat, Box<dyn Stream>), String> {
+        self.fixture.stream()
+    }
+    fn prepare(&self, raw: &RawRecording, threshold: f32) -> CaptureResult<Vec<u8>> {
+        if let Some(entered) = self.entered.lock().map_err(|_| state_error())?.take() {
+            let _ = entered.send(());
+        }
+        self.proceed
+            .lock()
+            .map_err(|_| state_error())?
+            .recv()
+            .map_err(|_| state_error())?;
+        prepare(raw, threshold)
+    }
+}
+#[tokio::test]
+async fn shutdown_waits_for_blocked_preparation_and_discards_its_late_output() -> CaptureResult<()>
+{
+    let (entered, preparing) = tokio::sync::oneshot::channel();
+    let (proceed, blocked) = std::sync::mpsc::channel();
+    let capture = Arc::new(Capture::new(Arc::new(DelayedPreparation {
+        entered: Mutex::new(Some(entered)),
+        proceed: Mutex::new(blocked),
+        fixture: fixture(false).1,
+    })));
+    let handle = capture.start(MicrophonePermission::Granted)?;
+    let mut finish = Box::pin(capture.finish(RecordingFinishRequest {
+        handle: handle.clone(),
+        gate_threshold: 0.0,
+    }));
+    std::future::poll_fn(|cx| {
+        assert!(finish.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    preparing.await.map_err(|_| state_error())?;
+    drop(finish);
+    capture.release(&handle)?;
+    let mut shutdown = Box::pin(capture.shutdown());
+    std::future::poll_fn(|cx| {
+        assert!(shutdown.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    assert!(capture.busy.load(Ordering::SeqCst));
+    proceed.send(()).map_err(|_| state_error())?;
+    shutdown.await?;
+    assert!(
+        capture
+            .outputs
+            .lock()
+            .map_err(|_| state_error())?
+            .is_empty()
+    );
+    assert!(
+        capture
+            .finishing
+            .lock()
+            .map_err(|_| state_error())?
+            .is_empty()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn stale_predecessor_idle_notification_does_not_release_successor_cleanup()
+-> CaptureResult<()> {
+    // Old guard publishes busy=false; successor claims busy=true/idle=false;
+    // old guard then publishes the stale idle=true notification.
+    let busy = AtomicBool::new(true);
+    let (changed, idle) = tokio::sync::watch::channel(true);
+    let mut cleanup = Box::pin(wait_for_idle(&busy, idle));
+    std::future::poll_fn(|cx| {
+        assert!(cleanup.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    busy.store(false, Ordering::SeqCst);
+    changed.send_replace(true);
+    cleanup.await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn lost_cleanup_notifications_fail_closed() {
+    let busy = AtomicBool::new(true);
+    let (changed, idle) = tokio::sync::watch::channel(true);
+    drop(changed);
+    assert!(matches!(
+        wait_for_idle(&busy, idle).await,
+        Err(CaptureError::Device(_))
+    ));
 }

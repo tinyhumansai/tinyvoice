@@ -8,6 +8,10 @@ pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyvoice/Voice";
 
 /// One constant per member of [`BUS_NAME`].
 pub mod methods {
+    /// Close capture and await pending native cleanup.
+    pub const CAPTURE_SHUTDOWN: &str = "CaptureShutdown";
+    /// Reserve an opaque cancellation handle before native startup.
+    pub const RESERVE_CAPTURE: &str = "ReserveCapture";
     /// Start native continuous capture.
     pub const CAPTURE_START: &str = "CaptureStart";
     /// Read a bounded native chunk batch.
@@ -66,6 +70,7 @@ pub mod methods {
 /// Every member of [`BUS_NAME`], in the interface's sorted dispatch order.
 pub const METHODS: &[&str] = &[
     methods::CAPTURE_POLL,
+    methods::CAPTURE_SHUTDOWN,
     methods::CAPTURE_START,
     methods::CAPTURE_STOP,
     methods::ENCODE_WAV,
@@ -81,6 +86,7 @@ pub const METHODS: &[&str] = &[
     methods::RECORDING_FINISH,
     methods::RECORDING_START,
     methods::RELEASE_AUDIO_OUTPUT,
+    methods::RESERVE_CAPTURE,
     methods::ROUTE,
     methods::SEGMENT,
     methods::VAD_CLOSE,

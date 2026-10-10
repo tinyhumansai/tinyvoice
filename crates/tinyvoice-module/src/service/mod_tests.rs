@@ -670,8 +670,8 @@ async fn a_truncated_pcm16_buffer_is_refused() -> tinybus::Result<()> {
 async fn native_capture_members_own_resources_and_return_bounded_wav_batches() -> tinybus::Result<()>
 {
     use tinyvoice_bus::capture::{
-        AudioOutput, CaptureError, CaptureHandle, CaptureResult, MicrophonePermission,
-        ReadAudioRequest, RecordingFinishRequest, RecordingStartRequest,
+        AudioOutput, CaptureError, CaptureHandle, CaptureResult, ReadAudioRequest,
+        RecordingFinishRequest, RecordingStartRequest,
     };
     let bus = MemoryBus::new();
     let task = Broker::new().spawn(bus.clone());
@@ -701,9 +701,7 @@ async fn native_capture_members_own_resources_and_return_bounded_wav_batches() -
     let handle: CaptureResult<CaptureHandle> = proxy
         .call(
             names::methods::RECORDING_START,
-            (RecordingStartRequest {
-                permission: MicrophonePermission::Granted,
-            },),
+            (reserved_request(&proxy).await?,),
         )
         .await?;
     let handle = handle.unwrap();
@@ -749,9 +747,7 @@ async fn native_capture_members_own_resources_and_return_bounded_wav_batches() -
     let handle: CaptureResult<CaptureHandle> = proxy
         .call(
             names::methods::RECORDING_START,
-            (RecordingStartRequest {
-                permission: MicrophonePermission::Granted,
-            },),
+            (reserved_request(&proxy).await?,),
         )
         .await?;
     let canceled: CaptureResult<()> = proxy
@@ -815,9 +811,7 @@ async fn continuous_capture_lifecycle_executes_through_bus_fixtures() -> tinybus
     let stream: CaptureResult<CaptureStream> = proxy
         .call(
             names::methods::CAPTURE_START,
-            (RecordingStartRequest {
-                permission: MicrophonePermission::Granted,
-            },),
+            (reserved_request(&proxy).await?,),
         )
         .await?;
     let stream = stream.unwrap();
@@ -841,5 +835,63 @@ async fn continuous_capture_lifecycle_executes_through_bus_fixtures() -> tinybus
         .await?;
     assert_eq!(missing, Err(CaptureError::UnknownHandle));
     task.abort();
+    Ok(())
+}
+#[tokio::test]
+async fn prepare_frames_rejects_expanded_output_before_resampling() {
+    let service = VoiceService::default();
+    let encoded = encode_samples(&vec![0.25; 200]);
+    assert!(service.prepare_frames(encoded, 1, 1).await.is_err());
+}
+
+async fn reserved_request(
+    proxy: &tinybus::Proxy,
+) -> tinybus::Result<tinyvoice_bus::capture::RecordingStartRequest> {
+    use tinyvoice_bus::capture::{
+        CaptureHandle, CaptureResult, MicrophonePermission, RecordingStartRequest,
+    };
+    let permission = MicrophonePermission::Granted;
+    let handle: CaptureResult<CaptureHandle> = proxy
+        .call(
+            names::methods::RESERVE_CAPTURE,
+            (RecordingStartRequest {
+                permission,
+                ..Default::default()
+            },),
+        )
+        .await?;
+    Ok(RecordingStartRequest {
+        permission,
+        handle: Some(handle.unwrap()),
+    })
+}
+#[tokio::test]
+async fn legacy_prepare_capture_rejects_expansion_before_encoding() {
+    let service = VoiceService::default();
+    assert!(
+        service
+            .prepare_capture(super::encode_samples(&vec![0.25; 300]), 1, 1, 0.0)
+            .await
+            .is_err()
+    );
+    assert!(super::check_expansion(usize::MAX, 1).is_err());
+    assert!(super::check_expansion(MAX_AUDIO_BYTES / 4, tinyvoice::audio::STT_SAMPLE_RATE).is_ok());
+}
+#[tokio::test]
+async fn capture_shutdown_is_terminal_over_the_bus() -> tinybus::Result<()> {
+    use tinyvoice_bus::capture::{CaptureError, CaptureResult};
+    let proxy = connect().await?;
+    let result: CaptureResult<()> = proxy.call(names::methods::CAPTURE_SHUTDOWN, ()).await?;
+    assert_eq!(result, Ok(()));
+    let reservation: CaptureResult<tinyvoice_bus::capture::CaptureHandle> = proxy
+        .call(
+            names::methods::RESERVE_CAPTURE,
+            (tinyvoice_bus::capture::RecordingStartRequest {
+                permission: tinyvoice_bus::capture::MicrophonePermission::Granted,
+                ..Default::default()
+            },),
+        )
+        .await?;
+    assert_eq!(reservation, Err(CaptureError::Closed));
     Ok(())
 }
