@@ -419,6 +419,51 @@ fn a_sequence_gap_applies_the_rest_of_the_batch_and_resynchronizes() {
 }
 
 #[test]
+fn every_sequence_gap_requires_a_fresh_release_before_reactivation() {
+    let (hotkeys, handle, generation) = started(ActivationMode::Push);
+    assert!(feed(&hotkeys, &handle, generation, &[(1, HostKeyFact::Down)]).active);
+
+    let gap = HotkeyFeedRequest {
+        handle: handle.clone(),
+        generation,
+        facts: vec![
+            SequencedHostFact {
+                sequence: 3,
+                fact: HostKeyFact::Up,
+            },
+            SequencedHostFact {
+                sequence: 4,
+                fact: HostKeyFact::Down,
+            },
+            SequencedHostFact {
+                sequence: 6,
+                fact: HostKeyFact::Down,
+            },
+            SequencedHostFact {
+                sequence: 7,
+                fact: HostKeyFact::Down,
+            },
+        ],
+        overflow: false,
+    };
+
+    assert_eq!(hotkeys.feed(&gap), Err(HotkeyError::SequenceGap));
+    assert!(
+        !hotkeys
+            .read(&HotkeyReadRequest {
+                handle: handle.clone(),
+                acknowledged_batch: None,
+            })
+            .unwrap()
+            .active,
+        "the second gap must reset and disarm the lease again"
+    );
+    assert!(!feed(&hotkeys, &handle, generation, &[(8, HostKeyFact::Down)]).active);
+    assert!(!feed(&hotkeys, &handle, generation, &[(9, HostKeyFact::Up)]).active);
+    assert!(feed(&hotkeys, &handle, generation, &[(10, HostKeyFact::Down)]).active);
+}
+
+#[test]
 fn a_partially_overlapping_batch_applies_its_unseen_tail() {
     let (hotkeys, handle, generation) = started(ActivationMode::Push);
     assert!(feed(&hotkeys, &handle, generation, &[(1, HostKeyFact::Down)]).active);

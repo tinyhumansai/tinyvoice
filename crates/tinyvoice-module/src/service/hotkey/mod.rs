@@ -309,7 +309,7 @@ impl Hotkeys {
             if fact.sequence <= lease.source_sequence {
                 continue;
             }
-            if !gap && fact.sequence != lease.source_sequence.saturating_add(1) {
+            if fact.sequence != lease.source_sequence.saturating_add(1) {
                 reset(lease);
                 gap = true;
             }
