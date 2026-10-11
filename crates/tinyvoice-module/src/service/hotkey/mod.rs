@@ -304,18 +304,21 @@ impl Hotkeys {
             lease.last_feed = Some((signature.0, signature.1, None));
             return Ok(status(lease));
         }
+        let mut gap = false;
         for fact in &request.facts {
             if fact.sequence <= lease.source_sequence {
-                return Err(HotkeyError::SequenceGap);
+                continue;
             }
-            if fact.sequence != lease.source_sequence.saturating_add(1) {
+            if !gap && fact.sequence != lease.source_sequence.saturating_add(1) {
                 reset(lease);
-                lease.source_sequence = fact.sequence;
-                lease.last_feed = Some((signature.0, signature.1, Some(HotkeyError::SequenceGap)));
-                return Err(HotkeyError::SequenceGap);
+                gap = true;
             }
             lease.source_sequence = fact.sequence;
             apply_fact(lease, matches!(fact.fact, tinyvoice_bus::HostKeyFact::Down));
+        }
+        if gap {
+            lease.last_feed = Some((signature.0, signature.1, Some(HotkeyError::SequenceGap)));
+            return Err(HotkeyError::SequenceGap);
         }
         lease.last_feed = Some((signature.0, signature.1, None));
         Ok(status(lease))
@@ -433,12 +436,20 @@ impl Hotkeys {
                 .map_err(|_| HotkeyError::Closed)?;
         }
         let mut leases = self.leases.lock().map_err(|_| HotkeyError::Closed)?;
+        let mut cleanup_failed = false;
         for lease in leases.values_mut() {
             if let Some(listener) = lease.native.as_mut() {
-                listener.stop()?;
+                if listener.stop().is_err() {
+                    cleanup_failed = true;
+                    continue;
+                }
                 lease.native = None;
             }
             lease.state = HotkeyState::Stopped;
+        }
+        if cleanup_failed {
+            leases.retain(|_, lease| lease.native.is_some());
+            return Err(HotkeyError::CleanupFailed);
         }
         leases.clear();
         Ok(HotkeyStatus {

@@ -1,3 +1,5 @@
+//! Tests for hotkey lease state and cleanup behavior.
+
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
@@ -372,6 +374,72 @@ fn sequence_gap_resets_push_state_until_a_fresh_release() {
     assert!(!feed(&hotkeys, &handle, generation, &[(4, HostKeyFact::Down)]).active);
     assert!(!feed(&hotkeys, &handle, generation, &[(5, HostKeyFact::Up)]).active);
     assert!(feed(&hotkeys, &handle, generation, &[(6, HostKeyFact::Down)]).active);
+}
+
+#[test]
+fn a_sequence_gap_applies_the_rest_of_the_batch_and_resynchronizes() {
+    let (hotkeys, handle, generation) = started(ActivationMode::Push);
+    assert!(feed(&hotkeys, &handle, generation, &[(1, HostKeyFact::Down)]).active);
+    let gap = HotkeyFeedRequest {
+        handle: handle.clone(),
+        generation,
+        facts: vec![
+            SequencedHostFact {
+                sequence: 3,
+                fact: HostKeyFact::Down,
+            },
+            SequencedHostFact {
+                sequence: 4,
+                fact: HostKeyFact::Up,
+            },
+            SequencedHostFact {
+                sequence: 5,
+                fact: HostKeyFact::Down,
+            },
+        ],
+        overflow: false,
+    };
+
+    assert_eq!(hotkeys.feed(&gap), Err(HotkeyError::SequenceGap));
+    let after_gap = hotkeys
+        .read(&HotkeyReadRequest {
+            handle: handle.clone(),
+            acknowledged_batch: None,
+        })
+        .unwrap();
+    assert!(after_gap.reset);
+    assert!(after_gap.active, "the batch's fresh Up and Down are applied");
+    assert_eq!(after_gap.events.len(), 1);
+    assert_eq!(after_gap.events[0].event, HotkeyEvent::Pressed);
+
+    assert!(
+        !feed(&hotkeys, &handle, generation, &[(6, HostKeyFact::Up)]).active,
+        "the next batch continues from the last fact in the gapped batch"
+    );
+}
+
+#[test]
+fn a_partially_overlapping_batch_applies_its_unseen_tail() {
+    let (hotkeys, handle, generation) = started(ActivationMode::Push);
+    assert!(feed(&hotkeys, &handle, generation, &[(1, HostKeyFact::Down)]).active);
+
+    let overlap = HotkeyFeedRequest {
+        handle,
+        generation,
+        facts: vec![
+            SequencedHostFact {
+                sequence: 1,
+                fact: HostKeyFact::Down,
+            },
+            SequencedHostFact {
+                sequence: 2,
+                fact: HostKeyFact::Up,
+            },
+        ],
+        overflow: false,
+    };
+    let status = hotkeys.feed(&overlap).expect("new tail should be applied");
+    assert!(!status.active);
 }
 
 #[test]
@@ -842,4 +910,74 @@ fn failed_native_cleanup_keeps_retryable_ownership_and_never_acknowledges_stop()
             continuity_lost: true,
         })
     );
+}
+
+#[test]
+fn shutdown_stops_every_listener_and_retains_only_failed_cleanup_for_retry() {
+    let stop_calls = Arc::new(AtomicUsize::new(0));
+    let hotkeys = Hotkeys::with_backend(Arc::new(ShutdownBackend(stop_calls.clone())));
+    let handles: Vec<_> = (0..2)
+        .map(|_| {
+            hotkeys
+                .reserve(HotkeyReserveRequest {
+                    request: HotkeyRequest {
+                        key: "ctrl+space".into(),
+                        mode: ActivationMode::Push,
+                        source: HotkeySource::Native,
+                    },
+                })
+                .unwrap()
+        })
+        .collect();
+    for handle in &handles {
+        hotkeys
+            .start(&HotkeyHandleRequest {
+                handle: handle.clone(),
+            })
+            .unwrap();
+    }
+
+    assert_eq!(hotkeys.shutdown(), Err(HotkeyError::CleanupFailed));
+    assert_eq!(stop_calls.load(Ordering::SeqCst), 2);
+
+    assert_eq!(hotkeys.shutdown().unwrap().state, HotkeyState::Stopped);
+    assert_eq!(stop_calls.load(Ordering::SeqCst), 3);
+}
+
+#[derive(Debug)]
+struct ShutdownBackend(Arc<AtomicUsize>);
+
+impl native::Backend for ShutdownBackend {
+    fn start(&self, _request: &HotkeyRequest) -> Result<native::NativeListener, HotkeyError> {
+        let (sender, events) = std::sync::mpsc::sync_channel(1);
+        drop(sender);
+        Ok(native::NativeListener::new(
+            events,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+            Box::new(ShutdownOwner {
+                stop_calls: self.0.clone(),
+                stopped: false,
+            }),
+        ))
+    }
+}
+
+#[derive(Debug)]
+struct ShutdownOwner {
+    stop_calls: Arc<AtomicUsize>,
+    stopped: bool,
+}
+
+impl native::NativeOwner for ShutdownOwner {
+    fn stop(&mut self) -> Result<(), HotkeyError> {
+        if self.stopped {
+            return Ok(());
+        }
+        if self.stop_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            return Err(HotkeyError::CleanupFailed);
+        }
+        self.stopped = true;
+        Ok(())
+    }
 }
