@@ -168,6 +168,7 @@ pub(super) struct XRecordOwner {
 enum RecordCleanupError {
     ConnectionLost,
     Protocol,
+    Uncertain,
 }
 
 trait RecordControl: std::fmt::Debug + Send {
@@ -178,14 +179,14 @@ trait RecordControl: std::fmt::Debug + Send {
 impl RecordControl for RustConnection {
     fn disable_context(&self, context: u32) -> Result<(), RecordCleanupError> {
         self.record_disable_context(context)
-            .map_err(|_| RecordCleanupError::ConnectionLost)?
+            .map_err(|error| classify_connection_error(&error))?
             .check()
             .map_err(|error| classify_reply_error(&error))
     }
 
     fn free_context(&self, context: u32) -> Result<(), RecordCleanupError> {
         self.record_free_context(context)
-            .map_err(|_| RecordCleanupError::ConnectionLost)?
+            .map_err(|error| classify_connection_error(&error))?
             .check()
             .map_err(|error| classify_reply_error(&error))
     }
@@ -193,8 +194,26 @@ impl RecordControl for RustConnection {
 
 fn classify_reply_error(error: &x11rb::errors::ReplyError) -> RecordCleanupError {
     match error {
-        x11rb::errors::ReplyError::ConnectionError(_) => RecordCleanupError::ConnectionLost,
+        x11rb::errors::ReplyError::ConnectionError(error) => classify_connection_error(error),
         x11rb::errors::ReplyError::X11Error(_) => RecordCleanupError::Protocol,
+    }
+}
+
+fn classify_connection_error(error: &x11rb::errors::ConnectionError) -> RecordCleanupError {
+    match error {
+        x11rb::errors::ConnectionError::IoError(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::NotConnected
+                    | std::io::ErrorKind::UnexpectedEof
+            ) =>
+        {
+            RecordCleanupError::ConnectionLost
+        }
+        _ => RecordCleanupError::Uncertain,
     }
 }
 
@@ -216,12 +235,16 @@ impl NativeOwner for XRecordOwner {
                 self.context = None;
                 return Ok(());
             }
-            Err(RecordCleanupError::Protocol) => return Err(HotkeyError::CleanupFailed),
+            Err(RecordCleanupError::Protocol | RecordCleanupError::Uncertain) => {
+                return Err(HotkeyError::CleanupFailed);
+            }
         }
         if let Some(context) = self.context {
             match self.control.free_context(context) {
                 Ok(()) | Err(RecordCleanupError::ConnectionLost) => self.context = None,
-                Err(RecordCleanupError::Protocol) => return Err(HotkeyError::CleanupFailed),
+                Err(RecordCleanupError::Protocol | RecordCleanupError::Uncertain) => {
+                    return Err(HotkeyError::CleanupFailed);
+                }
             }
         }
         Ok(())
