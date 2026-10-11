@@ -27,7 +27,9 @@ fn local_xrecord_listener_cancels_blocked_reader_and_joins() {
 #[test]
 fn xrecord_stop_releases_context_after_control_connection_loss() {
     let mut owner = owner_with(FakeRecordControl {
-        disable: Arc::new(std::sync::Mutex::new(Err(RecordCleanupError::ConnectionLost))),
+        disable: Arc::new(std::sync::Mutex::new(Err(
+            RecordCleanupError::ConnectionLost,
+        ))),
         free: Arc::new(std::sync::Mutex::new(Ok(()))),
     });
 
@@ -50,7 +52,9 @@ fn xrecord_stop_keeps_context_on_protocol_error() {
 fn xrecord_stop_releases_context_if_free_finds_connection_lost() {
     let mut owner = owner_with(FakeRecordControl {
         disable: Arc::new(std::sync::Mutex::new(Ok(()))),
-        free: Arc::new(std::sync::Mutex::new(Err(RecordCleanupError::ConnectionLost))),
+        free: Arc::new(std::sync::Mutex::new(Err(
+            RecordCleanupError::ConnectionLost,
+        ))),
     });
 
     assert_eq!(owner.stop(), Ok(()));
@@ -60,23 +64,28 @@ fn xrecord_stop_releases_context_if_free_finds_connection_lost() {
 #[test]
 fn uncertain_x11_connection_errors_do_not_mean_the_context_was_released() {
     let timeout = x11rb::errors::ReplyError::ConnectionError(
-        x11rb::errors::ConnectionError::IoError(std::io::Error::from(
-            std::io::ErrorKind::TimedOut,
-        )),
+        x11rb::errors::ConnectionError::IoError(std::io::Error::from(std::io::ErrorKind::TimedOut)),
     );
-    let unknown = x11rb::errors::ReplyError::ConnectionError(
-        x11rb::errors::ConnectionError::UnknownError,
+    let unknown =
+        x11rb::errors::ReplyError::ConnectionError(x11rb::errors::ConnectionError::UnknownError);
+
+    assert_eq!(
+        classify_reply_error(&timeout),
+        RecordCleanupError::Uncertain
+    );
+    assert_eq!(
+        classify_reply_error(&unknown),
+        RecordCleanupError::Uncertain
     );
 
-    assert_eq!(classify_reply_error(&timeout), RecordCleanupError::Uncertain);
-    assert_eq!(classify_reply_error(&unknown), RecordCleanupError::Uncertain);
-
-    let closed = x11rb::errors::ReplyError::ConnectionError(
-        x11rb::errors::ConnectionError::IoError(std::io::Error::from(
-            std::io::ErrorKind::BrokenPipe,
-        )),
+    let closed =
+        x11rb::errors::ReplyError::ConnectionError(x11rb::errors::ConnectionError::IoError(
+            std::io::Error::from(std::io::ErrorKind::BrokenPipe),
+        ));
+    assert_eq!(
+        classify_reply_error(&closed),
+        RecordCleanupError::ConnectionLost
     );
-    assert_eq!(classify_reply_error(&closed), RecordCleanupError::ConnectionLost);
 }
 
 #[test]

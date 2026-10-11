@@ -408,7 +408,10 @@ fn a_sequence_gap_applies_the_rest_of_the_batch_and_resynchronizes() {
         })
         .unwrap();
     assert!(after_gap.reset);
-    assert!(after_gap.active, "the batch's fresh Up and Down are applied");
+    assert!(
+        after_gap.active,
+        "the batch's fresh Up and Down are applied"
+    );
     assert_eq!(after_gap.events.len(), 1);
     assert_eq!(after_gap.events[0].event, HotkeyEvent::Pressed);
 
