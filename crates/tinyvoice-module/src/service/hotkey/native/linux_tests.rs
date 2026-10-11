@@ -1,3 +1,5 @@
+//! Tests for X11 key mapping and listener cleanup.
+
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
@@ -20,6 +22,65 @@ fn local_xrecord_listener_cancels_blocked_reader_and_joins() {
     listener
         .stop()
         .expect("X RECORD stop disables context and joins reader");
+}
+
+#[test]
+fn xrecord_stop_releases_context_after_control_connection_loss() {
+    let mut owner = owner_with(FakeRecordControl {
+        disable: Err(RecordCleanupError::ConnectionLost),
+        free: Ok(()),
+    });
+
+    assert_eq!(owner.stop(), Ok(()));
+    assert_eq!(owner.context, None);
+}
+
+#[test]
+fn xrecord_stop_keeps_context_on_protocol_error() {
+    let mut owner = owner_with(FakeRecordControl {
+        disable: Err(RecordCleanupError::Protocol),
+        free: Ok(()),
+    });
+
+    assert_eq!(owner.stop(), Err(HotkeyError::CleanupFailed));
+    assert_eq!(owner.context, Some(1));
+}
+
+#[test]
+fn xrecord_stop_releases_context_if_free_finds_connection_lost() {
+    let mut owner = owner_with(FakeRecordControl {
+        disable: Ok(()),
+        free: Err(RecordCleanupError::ConnectionLost),
+    });
+
+    assert_eq!(owner.stop(), Ok(()));
+    assert_eq!(owner.context, None);
+}
+
+#[derive(Debug)]
+struct FakeRecordControl {
+    disable: Result<(), RecordCleanupError>,
+    free: Result<(), RecordCleanupError>,
+}
+
+impl RecordControl for FakeRecordControl {
+    fn disable_context(&self, _context: u32) -> Result<(), RecordCleanupError> {
+        self.disable
+    }
+
+    fn free_context(&self, _context: u32) -> Result<(), RecordCleanupError> {
+        self.free
+    }
+}
+
+fn owner_with(control: FakeRecordControl) -> XRecordOwner {
+    XRecordOwner {
+        control: Box::new(control),
+        context: Some(1),
+        disable_sent: false,
+        wake: std::fs::File::open("/dev/null").unwrap().into(),
+        worker: None,
+    }
 }
 
 #[test]
@@ -71,6 +132,10 @@ fn physical_x_keycodes_keep_the_existing_key_vocabulary() {
         (105, Key::ControlRight),
         (119, Key::Delete),
         (116, Key::DownArrow),
+        (127, Key::Pause),
+        (107, Key::PrintScreen),
+        (77, Key::NumLock),
+        (78, Key::ScrollLock),
         (115, Key::End),
         (9, Key::Escape),
         (67, Key::F1),

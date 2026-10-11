@@ -87,7 +87,7 @@ pub(super) fn start(request: &HotkeyRequest) -> Result<NativeListener, HotkeyErr
         .map_err(|_| HotkeyError::Unsupported)?;
     let Ok(Ok(())) = ready_rx.recv() else {
         let mut owner = XRecordOwner {
-            control,
+            control: Box::new(control),
             context: Some(context),
             disable_sent: false,
             wake,
@@ -97,7 +97,7 @@ pub(super) fn start(request: &HotkeyRequest) -> Result<NativeListener, HotkeyErr
         return Err(HotkeyError::Unsupported);
     };
     let owner = XRecordOwner {
-        control,
+        control: Box::new(control),
         context: Some(context),
         disable_sent: false,
         wake,
@@ -157,23 +157,52 @@ fn create_record_context(control: &RustConnection, context: u32) -> Result<(), H
 
 #[derive(Debug)]
 pub(super) struct XRecordOwner {
-    control: x11rb::rust_connection::RustConnection,
+    control: Box<dyn RecordControl>,
     context: Option<u32>,
     disable_sent: bool,
     wake: rustix::fd::OwnedFd,
     worker: Option<thread::JoinHandle<()>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecordCleanupError {
+    ConnectionLost,
+    Protocol,
+}
+
+trait RecordControl: std::fmt::Debug + Send {
+    fn disable_context(&self, context: u32) -> Result<(), RecordCleanupError>;
+    fn free_context(&self, context: u32) -> Result<(), RecordCleanupError>;
+}
+
+impl RecordControl for RustConnection {
+    fn disable_context(&self, context: u32) -> Result<(), RecordCleanupError> {
+        self.record_disable_context(context)
+            .map_err(|_| RecordCleanupError::ConnectionLost)?
+            .check()
+            .map_err(|error| classify_reply_error(&error))
+    }
+
+    fn free_context(&self, context: u32) -> Result<(), RecordCleanupError> {
+        self.record_free_context(context)
+            .map_err(|_| RecordCleanupError::ConnectionLost)?
+            .check()
+            .map_err(|error| classify_reply_error(&error))
+    }
+}
+
+fn classify_reply_error(error: &x11rb::errors::ReplyError) -> RecordCleanupError {
+    match error {
+        x11rb::errors::ReplyError::ConnectionError(_) => RecordCleanupError::ConnectionLost,
+        x11rb::errors::ReplyError::X11Error(_) => RecordCleanupError::Protocol,
+    }
+}
+
 impl NativeOwner for XRecordOwner {
     fn stop(&mut self) -> Result<(), HotkeyError> {
         let disable_result = if let Some(context) = self.context.filter(|_| !self.disable_sent) {
-            match self.control.record_disable_context(context) {
-                Ok(cookie) => {
-                    self.disable_sent = true;
-                    cookie.check().map_err(|_| HotkeyError::CleanupFailed)
-                }
-                Err(_) => Err(HotkeyError::CleanupFailed),
-            }
+            self.disable_sent = true;
+            self.control.disable_context(context)
         } else {
             Ok(())
         };
@@ -181,14 +210,19 @@ impl NativeOwner for XRecordOwner {
         if let Some(worker) = self.worker.take() {
             worker.join().map_err(|_| HotkeyError::CleanupFailed)?;
         }
-        disable_result?;
+        match disable_result {
+            Ok(()) => {}
+            Err(RecordCleanupError::ConnectionLost) => {
+                self.context = None;
+                return Ok(());
+            }
+            Err(RecordCleanupError::Protocol) => return Err(HotkeyError::CleanupFailed),
+        }
         if let Some(context) = self.context {
-            self.control
-                .record_free_context(context)
-                .map_err(|_| HotkeyError::CleanupFailed)?
-                .check()
-                .map_err(|_| HotkeyError::CleanupFailed)?;
-            self.context = None;
+            match self.control.free_context(context) {
+                Ok(()) | Err(RecordCleanupError::ConnectionLost) => self.context = None,
+                Err(RecordCleanupError::Protocol) => return Err(HotkeyError::CleanupFailed),
+            }
         }
         Ok(())
     }
@@ -298,11 +332,15 @@ fn navigation_key(code: u32) -> Option<Key> {
         115 => Key::End,
         9 => Key::Escape,
         110 => Key::Home,
+        77 => Key::NumLock,
+        127 => Key::Pause,
+        107 => Key::PrintScreen,
         113 => Key::LeftArrow,
         117 => Key::PageDown,
         112 => Key::PageUp,
         36 => Key::Return,
         114 => Key::RightArrow,
+        78 => Key::ScrollLock,
         65 => Key::Space,
         23 => Key::Tab,
         111 => Key::UpArrow,
