@@ -4,7 +4,7 @@ This package contains the native `tinyvoice` module for TinyBus module ABI v1.
 Install only the archive matching the host operating system and architecture.
 
 The module claims `ai.tinyhumans.tinyvoice.Voice`, serves the object at
-`/ai/tinyhumans/tinyvoice/Voice`, and provides 26 methods under contract 1.3.
+`/ai/tinyhumans/tinyvoice/Voice`, and provides 32 methods under contract 1.4.
 
 ## Methods
 
@@ -36,6 +36,12 @@ The module claims `ai.tinyhumans.tinyvoice.Voice`, serves the object at
 | `CaptureStart` | permission and reserved handle | opaque stream handle and native format |
 | `CapturePoll` | handle, max_chunks in one request | ordered raw chunks and closed flag |
 | `CaptureStop` | handle | structured result after native thread shutdown |
+| `HotkeyReserve` | bounded `HotkeyRequest` | opaque `HotkeyHandle` ([lifecycle](docs/specs/hotkey-module-lifecycle.md)) |
+| `HotkeyStart` | reserved handle | status and host-feed generation ([lifecycle](docs/specs/hotkey-module-lifecycle.md)) |
+| `HotkeyRead` | handle and optional acknowledged batch | bounded replayable event batch ([lifecycle](docs/specs/hotkey-module-lifecycle.md)) |
+| `HotkeyFeed` | handle, generation, sequence, key facts, and overflow flag | feed status ([lifecycle](docs/specs/hotkey-module-lifecycle.md)) |
+| `HotkeyStop` | handle | status after listener cleanup ([lifecycle](docs/specs/hotkey-module-lifecycle.md)) |
+| `HotkeyShutdown` | none | terminal cleanup status ([lifecycle](docs/specs/hotkey-module-lifecycle.md)) |
 
 Notes on the contract:
 
