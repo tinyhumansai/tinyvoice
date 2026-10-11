@@ -80,6 +80,25 @@ jobs:
           path: coverage.json
           if-no-files-found: ignore
 
+  windows-hotkeys:
+    name: Windows hotkey ownership
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          submodules: true
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test module hotkey lifecycle on Windows
+        run: cargo test --locked --manifest-path crates/tinyvoice-module/Cargo.toml --all-features
+
+      - name: Test native Windows hook owner
+        run: cargo test --locked --manifest-path crates/tinyvoice-hotkey-win/Cargo.toml
+
   docs:
     name: Docs
     runs-on: ubuntu-latest

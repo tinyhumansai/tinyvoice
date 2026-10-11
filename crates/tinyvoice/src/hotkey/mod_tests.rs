@@ -70,6 +70,10 @@ fn parse_unknown_key_errors() {
 #[test]
 fn activation_mode_default_is_push() {
     assert_eq!(ActivationMode::default(), ActivationMode::Push);
+    let shared_mode: tinyvoice_bus::ActivationMode = ActivationMode::Tap;
+    assert_eq!(shared_mode, tinyvoice_bus::ActivationMode::Tap);
+    let shared_event: tinyvoice_bus::HotkeyEvent = HotkeyEvent::Pressed;
+    assert_eq!(shared_event, tinyvoice_bus::HotkeyEvent::Pressed);
 }
 
 #[test]

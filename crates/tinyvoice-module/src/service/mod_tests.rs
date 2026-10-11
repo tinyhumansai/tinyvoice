@@ -19,6 +19,10 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use tinybus::broker::Broker;
 use tinybus::transport::memory::MemoryBus;
 use tinybus::{Connection, Interface};
+use tinyvoice_bus::{
+    ActivationMode, HostKeyFact, HotkeyFeedRequest, HotkeyHandleRequest, HotkeyReadRequest,
+    HotkeyRequest, HotkeyReserveRequest, HotkeySource, SequencedHostFact,
+};
 use tinyvoice_bus::{BUS_NAME, OBJECT_PATH, names};
 
 /// A live bus with the interface served on it.
@@ -663,5 +667,314 @@ async fn a_truncated_pcm16_buffer_is_refused() -> tinybus::Result<()> {
         ));
     };
     assert!(error.to_string().contains("i16 samples"), "got: {error}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn native_capture_members_own_resources_and_return_bounded_wav_batches() -> tinybus::Result<()>
+{
+    use tinyvoice_bus::capture::{
+        AudioOutput, CaptureError, CaptureHandle, CaptureResult, ReadAudioRequest,
+        RecordingFinishRequest, RecordingStartRequest,
+    };
+    let bus = MemoryBus::new();
+    let task = Broker::new().spawn(bus.clone());
+    let service = Connection::connect(bus.connect().await?).await?;
+    service
+        .serve_at(
+            OBJECT_PATH.try_into()?,
+            VoiceService {
+                capture: super::capture::fixture_capture(),
+                ..Default::default()
+            },
+        )
+        .await?;
+    service.request_name(BUS_NAME).await?;
+    let client = Connection::connect(bus.connect().await?).await?;
+    let proxy = client.proxy(BUS_NAME, OBJECT_PATH, BUS_NAME)?;
+    let devices: CaptureResult<Vec<String>> =
+        proxy.call(names::methods::LIST_INPUT_DEVICES, ()).await?;
+    assert_eq!(devices, Ok(vec!["fixture".into()]));
+    let denied: CaptureResult<CaptureHandle> = proxy
+        .call(
+            names::methods::RECORDING_START,
+            (RecordingStartRequest::default(),),
+        )
+        .await?;
+    assert_eq!(denied, Err(CaptureError::PermissionDenied));
+    let handle: CaptureResult<CaptureHandle> = proxy
+        .call(
+            names::methods::RECORDING_START,
+            (reserved_request(&proxy).await?,),
+        )
+        .await?;
+    let handle = handle.unwrap();
+    let output: CaptureResult<AudioOutput> = proxy
+        .call(
+            names::methods::RECORDING_FINISH,
+            (RecordingFinishRequest {
+                handle,
+                gate_threshold: 0.0,
+            },),
+        )
+        .await?;
+    let output = output.unwrap();
+    let bytes: CaptureResult<String> = proxy
+        .call(
+            names::methods::READ_AUDIO_OUTPUT,
+            (ReadAudioRequest {
+                handle: output.handle.clone(),
+                offset: 0,
+                length: 256,
+            },),
+        )
+        .await?;
+    assert_eq!(BASE64.decode(bytes.unwrap()).unwrap().len(), 256);
+    let released: CaptureResult<()> = proxy
+        .call(
+            names::methods::RELEASE_AUDIO_OUTPUT,
+            (output.handle.clone(),),
+        )
+        .await?;
+    assert_eq!(released, Ok(()));
+    let missing: CaptureResult<String> = proxy
+        .call(
+            names::methods::READ_AUDIO_OUTPUT,
+            (ReadAudioRequest {
+                handle: output.handle,
+                offset: 0,
+                length: 1,
+            },),
+        )
+        .await?;
+    assert_eq!(missing, Err(CaptureError::UnknownHandle));
+    let handle: CaptureResult<CaptureHandle> = proxy
+        .call(
+            names::methods::RECORDING_START,
+            (reserved_request(&proxy).await?,),
+        )
+        .await?;
+    let canceled: CaptureResult<()> = proxy
+        .call(names::methods::RECORDING_CANCEL, (handle.unwrap(),))
+        .await?;
+    assert_eq!(canceled, Ok(()));
+    task.abort();
+    Ok(())
+}
+
+#[tokio::test]
+async fn prepare_capture_gates_inside_the_module_and_rejects_invalid_formats() -> tinybus::Result<()>
+{
+    let proxy = connect().await?;
+    let wav: String = proxy
+        .call(
+            names::methods::PREPARE_CAPTURE,
+            (encode_samples(&[0.25; 320]), 16_000_u32, 1_u16, 0.01_f32),
+        )
+        .await?;
+    assert_eq!(&BASE64.decode(wav).unwrap()[..4], b"RIFF");
+    for (samples, rate, channels) in [
+        ("invalid".to_string(), 16_000_u32, 1_u16),
+        (encode_samples(&[0.25]), 0, 1),
+        (encode_samples(&[0.25]), 16_000, 0),
+    ] {
+        assert!(
+            proxy
+                .call::<String>(
+                    names::methods::PREPARE_CAPTURE,
+                    (samples, rate, channels, 0.0_f32)
+                )
+                .await
+                .is_err()
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn continuous_capture_lifecycle_executes_through_bus_fixtures() -> tinybus::Result<()> {
+    use tinyvoice_bus::capture::*;
+    let bus = MemoryBus::new();
+    let task = Broker::new().spawn(bus.clone());
+    let service = Connection::connect(bus.connect().await?).await?;
+    let fixture = VoiceService {
+        capture: super::capture::fixture_capture(),
+        ..VoiceService::default()
+    };
+    service.serve_at(OBJECT_PATH.try_into()?, fixture).await?;
+    service.request_name(BUS_NAME).await?;
+    let client = Connection::connect(bus.connect().await?).await?;
+    let proxy = client.proxy(BUS_NAME, OBJECT_PATH, BUS_NAME)?;
+    let denied: CaptureResult<CaptureStream> = proxy
+        .call(
+            names::methods::CAPTURE_START,
+            (RecordingStartRequest::default(),),
+        )
+        .await?;
+    assert!(matches!(denied, Err(CaptureError::PermissionDenied)));
+    let stream: CaptureResult<CaptureStream> = proxy
+        .call(
+            names::methods::CAPTURE_START,
+            (reserved_request(&proxy).await?,),
+        )
+        .await?;
+    let stream = stream.unwrap();
+    assert_eq!(stream.format.channels, 1);
+    let batch: CaptureResult<CaptureBatch> = proxy
+        .call(
+            names::methods::CAPTURE_POLL,
+            (CapturePollRequest {
+                handle: stream.handle.clone(),
+                max_chunks: 2,
+            },),
+        )
+        .await?;
+    assert_eq!(batch.unwrap().chunks[0].samples, vec![0.25; 16]);
+    let stopped: CaptureResult<()> = proxy
+        .call(names::methods::CAPTURE_STOP, (stream.handle.clone(),))
+        .await?;
+    assert_eq!(stopped, Ok(()));
+    let missing: CaptureResult<()> = proxy
+        .call(names::methods::CAPTURE_STOP, (stream.handle,))
+        .await?;
+    assert_eq!(missing, Err(CaptureError::UnknownHandle));
+    task.abort();
+    Ok(())
+}
+#[tokio::test]
+async fn prepare_frames_rejects_expanded_output_before_resampling() {
+    let service = VoiceService::default();
+    let encoded = encode_samples(&vec![0.25; 200]);
+    assert!(service.prepare_frames(encoded, 1, 1).await.is_err());
+}
+
+async fn reserved_request(
+    proxy: &tinybus::Proxy,
+) -> tinybus::Result<tinyvoice_bus::capture::RecordingStartRequest> {
+    use tinyvoice_bus::capture::{
+        CaptureHandle, CaptureResult, MicrophonePermission, RecordingStartRequest,
+    };
+    let permission = MicrophonePermission::Granted;
+    let handle: CaptureResult<CaptureHandle> = proxy
+        .call(
+            names::methods::RESERVE_CAPTURE,
+            (RecordingStartRequest {
+                permission,
+                ..Default::default()
+            },),
+        )
+        .await?;
+    Ok(RecordingStartRequest {
+        permission,
+        handle: Some(handle.unwrap()),
+    })
+}
+#[tokio::test]
+async fn legacy_prepare_capture_rejects_expansion_before_encoding() {
+    let service = VoiceService::default();
+    assert!(
+        service
+            .prepare_capture(super::encode_samples(&vec![0.25; 300]), 1, 1, 0.0)
+            .await
+            .is_err()
+    );
+    assert!(super::check_expansion(usize::MAX, 1).is_err());
+    assert!(super::check_expansion(MAX_AUDIO_BYTES / 4, tinyvoice::audio::STT_SAMPLE_RATE).is_ok());
+}
+#[tokio::test]
+async fn capture_shutdown_is_terminal_over_the_bus() -> tinybus::Result<()> {
+    use tinyvoice_bus::capture::{CaptureError, CaptureResult};
+    let proxy = connect().await?;
+    let result: CaptureResult<()> = proxy.call(names::methods::CAPTURE_SHUTDOWN, ()).await?;
+    assert_eq!(result, Ok(()));
+    let reservation: CaptureResult<tinyvoice_bus::capture::CaptureHandle> = proxy
+        .call(
+            names::methods::RESERVE_CAPTURE,
+            (tinyvoice_bus::capture::RecordingStartRequest {
+                permission: tinyvoice_bus::capture::MicrophonePermission::Granted,
+                ..Default::default()
+            },),
+        )
+        .await?;
+    assert_eq!(reservation, Err(CaptureError::Closed));
+    Ok(())
+}
+
+#[tokio::test]
+async fn hotkey_contract_replays_events_and_shutdown_is_terminal() -> tinybus::Result<()> {
+    use tinyvoice_bus::{HotkeyError, HotkeyResult};
+    let proxy = connect().await?;
+    let reserved: HotkeyResult<tinyvoice_bus::HotkeyHandle> = proxy
+        .call(
+            names::methods::HOTKEY_RESERVE,
+            (HotkeyReserveRequest {
+                request: HotkeyRequest {
+                    key: "Fn".into(),
+                    mode: ActivationMode::Push,
+                    source: HotkeySource::Host,
+                },
+            },),
+        )
+        .await?;
+    let handle = reserved.unwrap();
+    let started: HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy
+        .call(
+            names::methods::HOTKEY_START,
+            (HotkeyHandleRequest {
+                handle: handle.clone(),
+            },),
+        )
+        .await?;
+    let generation = started.unwrap().generation.unwrap();
+    let fed: HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy
+        .call(
+            names::methods::HOTKEY_FEED,
+            (HotkeyFeedRequest {
+                handle: handle.clone(),
+                generation,
+                facts: vec![SequencedHostFact {
+                    sequence: 1,
+                    fact: HostKeyFact::Down,
+                }],
+                overflow: false,
+            },),
+        )
+        .await?;
+    assert!(fed.unwrap().active);
+    let read = HotkeyReadRequest {
+        handle: handle.clone(),
+        acknowledged_batch: None,
+    };
+    let first: HotkeyResult<tinyvoice_bus::HotkeyBatch> = proxy
+        .call(names::methods::HOTKEY_READ, (read.clone(),))
+        .await?;
+    let first = first.unwrap();
+    assert_eq!(first.events[0].event, tinyvoice_bus::HotkeyEvent::Pressed);
+    let replay: HotkeyResult<tinyvoice_bus::HotkeyBatch> =
+        proxy.call(names::methods::HOTKEY_READ, (read,)).await?;
+    assert_eq!(replay.unwrap(), first);
+    let stopped: HotkeyResult<tinyvoice_bus::HotkeyReply> = proxy
+        .call(
+            names::methods::HOTKEY_STOP,
+            (HotkeyHandleRequest { handle },),
+        )
+        .await?;
+    assert_eq!(stopped.unwrap().state, tinyvoice_bus::HotkeyState::Stopped);
+    let shutdown: HotkeyResult<tinyvoice_bus::HotkeyReply> =
+        proxy.call(names::methods::HOTKEY_SHUTDOWN, ()).await?;
+    assert_eq!(shutdown.unwrap().state, tinyvoice_bus::HotkeyState::Stopped);
+    let after: HotkeyResult<tinyvoice_bus::HotkeyHandle> = proxy
+        .call(
+            names::methods::HOTKEY_RESERVE,
+            (HotkeyReserveRequest {
+                request: HotkeyRequest {
+                    key: "Fn".into(),
+                    mode: ActivationMode::Tap,
+                    source: HotkeySource::Host,
+                },
+            },),
+        )
+        .await?;
+    assert_eq!(after, Err(HotkeyError::Closed));
     Ok(())
 }

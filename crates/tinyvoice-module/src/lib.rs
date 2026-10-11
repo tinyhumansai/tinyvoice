@@ -4,7 +4,7 @@
 //! the independently publishable `tinyvoice` crate. Its `cdylib` output is the
 //! target-specific binary distributed in GitHub releases.
 //!
-//! # A call costs about 13 microseconds
+//! # Measured call cost
 //!
 //! Measured in-process with `examples/bench_call.rs`, on the real loaded
 //! module: **13.3 µs per round trip**, against a 20 ms audio frame — 0.066% of
@@ -15,29 +15,29 @@
 //!   crates/tinyvoice-module/target/release/libtinyvoice_module.so
 //! ```
 //!
-//! This is worth stating plainly because an earlier revision of these docs
-//! asserted the opposite — that a per-frame call was too expensive and a
-//! realtime host should link the `tinyvoice` rlib instead. That claim was never
-//! measured, and it is wrong. A `TinyBus` module shares the host's address
-//! space; a call is a channel send and a JSON hop, not IPC.
+//! This benchmark measures one in-process method round trip on one machine. It
+//! is an example measurement, not a reason to call the module for every audio
+//! sample or frame.
 //!
-//! So a live capture loop **can** drive the VAD through this interface, and the
-//! session methods exist for exactly that.
+//! # Capture and hotkey ownership
 //!
-//! # What still belongs on the host's side
+//! The module owns bounded capture and recording leases, device callbacks and
+//! their worker handoff, plus native hotkey listener lifetimes. Hosts reserve,
+//! start, poll or read, and stop these leases through the bus. Audio callbacks
+//! keep to the realtime-safe capture handoff; host code does not forward raw
+//! samples through a per-sample bus loop. Hotkey reads return bounded batches
+//! with sequence and continuity facts so a host can recover from a gap.
 //!
-//! One thing, and it is about thread discipline rather than cost: whatever runs
-//! inside the audio callback. `cpal` delivers on a realtime thread where the
-//! correct amount of work is as little as possible and blocking is a dropout.
-//! A host should forward raw interleaved samples from the callback to its own
-//! worker and call `PrepareFrames` from there — which is less
-//! work in the callback than downmixing in place, not more.
+//! The host owns product policy and composition. In particular, macOS hotkey
+//! feeds can be composed from approved Computer accessibility facts by the
+//! host; `TinyVoice` does not link `Computer` or own accessibility algorithms.
 //!
-//! # Session state
+//! # Bounded session state
 //!
-//! The VAD is the only thing this module remembers between calls, because it is
-//! the only thing that is a state machine over successive frames. See
-//! [`VoiceService`] for why it is bounded and why ids are never reused.
+//! `VoiceService` retains capture, recording, VAD and hotkey owners between bus
+//! calls. Their leases, payloads, queues and replay windows are bounded, and
+//! identifiers are not reused within a module instance. Shutdown stops new
+//! work and joins native owners before the module is unloaded.
 
 mod service;
 

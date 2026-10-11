@@ -8,6 +8,28 @@ pub const OBJECT_PATH: &str = "/ai/tinyhumans/tinyvoice/Voice";
 
 /// One constant per member of [`BUS_NAME`].
 pub mod methods {
+    /// Reserves a hotkey lease before native startup.
+    pub const HOTKEY_RESERVE: &str = "HotkeyReserve";
+    /// Starts a reserved hotkey listener idempotently.
+    pub const HOTKEY_START: &str = "HotkeyStart";
+    /// Reads a replayable activation batch.
+    pub const HOTKEY_READ: &str = "HotkeyRead";
+    /// Feeds generic host-owned key facts.
+    pub const HOTKEY_FEED: &str = "HotkeyFeed";
+    /// Stops a listener after native cleanup and join.
+    pub const HOTKEY_STOP: &str = "HotkeyStop";
+    /// Closes admission and joins every listener.
+    pub const HOTKEY_SHUTDOWN: &str = "HotkeyShutdown";
+    /// Close capture and await pending native cleanup.
+    pub const CAPTURE_SHUTDOWN: &str = "CaptureShutdown";
+    /// Reserve an opaque cancellation handle before native startup.
+    pub const RESERVE_CAPTURE: &str = "ReserveCapture";
+    /// Start native continuous capture.
+    pub const CAPTURE_START: &str = "CaptureStart";
+    /// Read a bounded native chunk batch.
+    pub const CAPTURE_POLL: &str = "CapturePoll";
+    /// Stop native continuous capture and release its lease.
+    pub const CAPTURE_STOP: &str = "CaptureStop";
     /// Routes a wake-word-stripped transcript.
     pub const ROUTE: &str = "Route";
     /// Removes a leading wake word from a transcript.
@@ -38,17 +60,51 @@ pub mod methods {
     pub const ENCODE_WAV_PCM16: &str = "EncodeWavPcm16";
     /// Runs the capture preparation pipeline and produces a WAV file.
     pub const PREPARE_CAPTURE: &str = "PrepareCapture";
+    /// Native capture operation executed inside the compiled module.
+    pub const LIST_INPUT_DEVICES: &str = "ListInputDevices";
+
+    /// Native capture operation executed inside the compiled module.
+    pub const RECORDING_START: &str = "RecordingStart";
+
+    /// Native capture operation executed inside the compiled module.
+    pub const RECORDING_FINISH: &str = "RecordingFinish";
+
+    /// Native capture operation executed inside the compiled module.
+    pub const RECORDING_CANCEL: &str = "RecordingCancel";
+
+    /// Native capture operation executed inside the compiled module.
+    pub const READ_AUDIO_OUTPUT: &str = "ReadAudioOutput";
+
+    /// Native capture operation executed inside the compiled module.
+    pub const RELEASE_AUDIO_OUTPUT: &str = "ReleaseAudioOutput";
 }
 
 /// Every member of [`BUS_NAME`], in the interface's sorted dispatch order.
 pub const METHODS: &[&str] = &[
+    methods::CAPTURE_POLL,
+    methods::CAPTURE_SHUTDOWN,
+    methods::CAPTURE_START,
+    methods::CAPTURE_STOP,
     methods::ENCODE_WAV,
     methods::ENCODE_WAV_PCM16,
     methods::EXTRACT_COMMAND,
     methods::FRAME_ENERGIES,
+    methods::HOTKEY_FEED,
+    methods::HOTKEY_READ,
+    methods::HOTKEY_RESERVE,
+    methods::HOTKEY_SHUTDOWN,
+    methods::HOTKEY_START,
+    methods::HOTKEY_STOP,
     methods::IS_HALLUCINATED,
+    methods::LIST_INPUT_DEVICES,
     methods::PREPARE_CAPTURE,
     methods::PREPARE_FRAMES,
+    methods::READ_AUDIO_OUTPUT,
+    methods::RECORDING_CANCEL,
+    methods::RECORDING_FINISH,
+    methods::RECORDING_START,
+    methods::RELEASE_AUDIO_OUTPUT,
+    methods::RESERVE_CAPTURE,
     methods::ROUTE,
     methods::SEGMENT,
     methods::VAD_CLOSE,

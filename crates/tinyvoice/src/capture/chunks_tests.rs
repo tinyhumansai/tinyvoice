@@ -36,7 +36,7 @@ fn a_stream_that_comes_up_reports_its_format() {
     let (tx, _rx) = tokio::sync::mpsc::channel(1);
     let format = spawn_stream_thread(
         tx,
-        Box::new(|_tx, setup| {
+        Box::new(|_stop, _tx, setup| {
             setup
                 .send(Ok(CaptureFormat {
                     source_rate: 44_100,
@@ -56,7 +56,7 @@ fn a_body_error_reaches_the_caller_with_its_reason() {
     let (tx, _rx) = tokio::sync::mpsc::channel(1);
     let error = spawn_stream_thread(
         tx,
-        Box::new(|_, _| Err("no default audio input device".into())),
+        Box::new(|_, _, _| Err("no default audio input device".into())),
     )
     .unwrap_err();
     assert_eq!(error, "no default audio input device");
@@ -67,7 +67,7 @@ fn a_reported_setup_failure_is_returned_as_is() {
     let (tx, _rx) = tokio::sync::mpsc::channel(1);
     let error = spawn_stream_thread(
         tx,
-        Box::new(|_, setup| {
+        Box::new(|_stop, _, setup| {
             setup.send(Err("permission denied".to_string())).unwrap();
             Ok(())
         }),
@@ -79,7 +79,7 @@ fn a_reported_setup_failure_is_returned_as_is() {
 #[test]
 fn a_thread_that_dies_before_reporting_is_named_as_such() {
     let (tx, _rx) = tokio::sync::mpsc::channel(1);
-    let error = spawn_stream_thread(tx, Box::new(|_, _| Ok(()))).unwrap_err();
+    let error = spawn_stream_thread(tx, Box::new(|_, _, _| Ok(()))).unwrap_err();
     assert_eq!(
         error,
         "always-on capture thread exited before signalling readiness"
@@ -94,5 +94,136 @@ fn a_denied_permission_stops_the_stream_before_any_device_is_touched() {
     assert_eq!(
         error,
         crate::Error::Capture("microphone permission denied".into())
+    );
+}
+
+#[test]
+fn continuous_stream_exits_when_its_consumer_closes() {
+    let (tx, rx) = tokio::sync::mpsc::channel(1);
+    let (errors, error_rx) = std::sync::mpsc::channel();
+    errors
+        .send("late device error after consumer closure".to_string())
+        .unwrap();
+    drop(rx);
+    assert!(
+        super::wait_for_stream_end(&tx, &std::sync::atomic::AtomicBool::new(false), &error_rx)
+            .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn tracked_stop_waits_for_thread_cleanup_and_drop_requests_shutdown() {
+    for explicit in [true, false] {
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let (cleaned_tx, cleaned_rx) = tokio::sync::oneshot::channel();
+        let (format, handle) = super::spawn_tracked_stream(
+            tx,
+            Box::new(move |stop, _tx, setup| {
+                setup
+                    .send(Ok(CaptureFormat {
+                        source_rate: 48_000,
+                        channels: 2,
+                    }))
+                    .unwrap();
+                while !stop.load(Ordering::SeqCst) {
+                    std::thread::yield_now();
+                }
+                let _ = cleaned_tx.send(());
+                Ok(())
+            }),
+        )
+        .unwrap();
+        assert_eq!(format.source_rate, 48_000);
+        if explicit {
+            handle.stop().await.unwrap();
+        } else {
+            drop(handle);
+        }
+        cleaned_rx.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn tracked_stream_surfaces_terminal_and_vanished_thread_errors() {
+    let (tx, _rx) = tokio::sync::mpsc::channel(1);
+    let (_, handle) = super::spawn_tracked_stream(
+        tx,
+        Box::new(|_stop, _tx, setup| {
+            setup
+                .send(Ok(CaptureFormat {
+                    source_rate: 16_000,
+                    channels: 1,
+                }))
+                .unwrap();
+            Err("device disconnected".into())
+        }),
+    )
+    .unwrap();
+    assert_eq!(
+        handle.stop().await.unwrap_err(),
+        crate::Error::Capture("device disconnected".into())
+    );
+    let (done, completed) = tokio::sync::oneshot::channel();
+    drop(done);
+    let handle = super::CaptureStreamHandle {
+        stop_flag: Some(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+            false,
+        ))),
+        completed,
+    };
+    assert!(
+        handle
+            .stop()
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("task dropped")
+    );
+    let (tx, _rx) = tokio::sync::mpsc::channel(1);
+    assert_eq!(
+        super::start_capture_stream(tx, || Err("denied".into())).unwrap_err(),
+        crate::Error::Capture("denied".into())
+    );
+}
+
+#[test]
+fn stream_lifetime_surfaces_device_errors_and_accepts_explicit_stop() {
+    let (tx, _rx) = tokio::sync::mpsc::channel(1);
+    let (errors, rx) = std::sync::mpsc::channel();
+    errors.send("device disconnected".into()).unwrap();
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    assert_eq!(
+        super::wait_for_stream_end(&tx, &stop, &rx).unwrap_err(),
+        "device disconnected"
+    );
+    stop.store(true, Ordering::SeqCst);
+    assert!(super::wait_for_stream_end(&tx, &stop, &rx).is_ok());
+    drop(errors);
+    stop.store(false, Ordering::SeqCst);
+    assert!(super::wait_for_stream_end(&tx, &stop, &rx).is_ok());
+}
+
+#[test]
+fn explicit_stop_preserves_a_queued_device_error() {
+    let (tx, _rx) = tokio::sync::mpsc::channel(1);
+    let (errors, rx) = std::sync::mpsc::channel();
+    errors.send("device disconnected".to_string()).unwrap();
+
+    assert_eq!(
+        super::wait_for_stream_end(&tx, &std::sync::atomic::AtomicBool::new(true), &rx)
+            .unwrap_err(),
+        "device disconnected"
+    );
+}
+
+#[tokio::test]
+async fn oversized_native_buffers_are_dropped_before_queueing() {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(2);
+    forward(&tx, vec![0.0; super::MAX_CHUNK_SAMPLES + 1]);
+    assert!(rx.try_recv().is_err());
+    forward(&tx, vec![0.0; super::MAX_CHUNK_SAMPLES]);
+    assert_eq!(
+        rx.try_recv().unwrap().samples.len(),
+        super::MAX_CHUNK_SAMPLES
     );
 }

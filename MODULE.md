@@ -4,7 +4,7 @@ This package contains the native `tinyvoice` module for TinyBus module ABI v1.
 Install only the archive matching the host operating system and architecture.
 
 The module claims `ai.tinyhumans.tinyvoice.Voice`, serves the object at
-`/ai/tinyhumans/tinyvoice/Voice`, and provides seven methods.
+`/ai/tinyhumans/tinyvoice/Voice`, and provides 32 methods under contract 1.4.
 
 ## Methods
 
@@ -25,6 +25,23 @@ The module claims `ai.tinyhumans.tinyvoice.Voice`, serves the object at
 | `EncodeWav` | `samples` (`f32` mono), `sample_rate` | base64 WAV |
 | `EncodeWavPcm16` | `samples` (`i16`), `sample_rate`, `channels` | base64 WAV, samples unchanged |
 | `PrepareCapture` | `samples`, `source_rate`, `channels`, `gate_threshold` | base64 WAV |
+| `ListInputDevices` | none | structured result of device names |
+| `CaptureShutdown` | none | await native shutdown, terminal for this instance |
+| `ReserveCapture` | permission request | known reservation handle |
+| `RecordingStart` | permission and reserved handle | opaque recording handle |
+| `RecordingFinish` | handle, gate threshold in one request | bounded WAV output handle and length |
+| `RecordingCancel` | handle | structured result of unit |
+| `ReadAudioOutput` | handle, offset, length in one request | base64 WAV slice |
+| `ReleaseAudioOutput` | handle | structured result of unit |
+| `CaptureStart` | permission and reserved handle | opaque stream handle and native format |
+| `CapturePoll` | handle, max_chunks in one request | ordered raw chunks and closed flag |
+| `CaptureStop` | handle | structured result after native thread shutdown |
+| `HotkeyReserve` | bounded `HotkeyRequest` | opaque `HotkeyHandle` ([lifecycle](docs/specs/hotkey-module-lifecycle.md)) |
+| `HotkeyStart` | reserved handle | status and host-feed generation ([lifecycle](docs/specs/hotkey-module-lifecycle.md)) |
+| `HotkeyRead` | handle and optional acknowledged batch | bounded replayable event batch ([lifecycle](docs/specs/hotkey-module-lifecycle.md)) |
+| `HotkeyFeed` | handle, generation, sequence, key facts, and overflow flag | feed status ([lifecycle](docs/specs/hotkey-module-lifecycle.md)) |
+| `HotkeyStop` | handle | status after listener cleanup ([lifecycle](docs/specs/hotkey-module-lifecycle.md)) |
+| `HotkeyShutdown` | none | terminal cleanup status ([lifecycle](docs/specs/hotkey-module-lifecycle.md)) |
 
 Notes on the contract:
 
@@ -51,6 +68,14 @@ Notes on the contract:
   somebody is still recording. `VadClose` on an unknown id is deliberately
   **not** an error, so teardown cannot itself fail.
 - `VadPush` frame indices are relative to *that call*, not a running total.
+
+Native capture operations return `CaptureResult` values rather than transport
+errors. They require an explicit microphone grant from the host; denial never
+opens a device. One active recording or stream owns the microphone slot.
+Continuous polling returns at most two chunks from an eight-chunk queue, each
+containing at most 32,768 interleaved f32 samples. Call `CaptureStop` even after
+the queue closes to release the lease and observe terminal device errors. See
+[the capture specification](docs/specs/module-capture.md) for all resource bounds.
 
 ## Installing
 

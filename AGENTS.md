@@ -12,9 +12,12 @@ which decides where the *next* piece of code goes:
 > **A crate owns what is identical for every host; the host owns what depends
 > on its own runtime, config, or threat model.**
 
-`tinyvoice` is therefore synchronous, I/O-free and runtime-free. Before adding
-anything here, check it against that rule. Device capture, STT/TTS transport,
-hotkeys, credentials, and config shapes all fail it and belong to the host.
+`tinyvoice` keeps its pure primitives synchronous and runtime-free. The module
+owns native capture and its stoppable hotkey lifecycle. The library retains an
+optional reusable native listener API for standalone hosts; hosts that need
+module-managed lifetimes use the minimal bus contract. Credentials, permission
+decisions (through the computer module), product configuration and STT/TTS
+orchestration stay with the host.
 
 ## Project Structure
 
