@@ -2,7 +2,7 @@
 
 [package]
 name = "tinyvoice-module"
-version = "0.4.2"
+version = "0.4.1"
 edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-only"
@@ -40,9 +40,9 @@ tinyvoice-bus = { version = "0.2.0", path = "../tinyvoice-bus" }
 # crate exists so the vendored TinyBus dependency never reaches it.
 tinyvoice = { version = "0.3.2", path = "../tinyvoice", features = ["capture", "hotkey", "amr-nb"] }
 # TinyBus provides the typed service interface and the dynamic module host ABI.
-tinybus = { version = ">=0.3.6, <0.4", default-features = false, features = ["macros", "modules"] }
+tinybus = { version = ">=0.3.12, <0.4", default-features = false, features = ["macros", "modules"] }
 # The module-side SDK owns its runtime and exports the stable C entrypoints.
-tinybus-module = ">=0.3.6, <0.4"
+tinybus-module = ">=0.3.12, <0.4"
 # The module's methods are `async fn` on a served object, so it needs a runtime
 # even though every operation underneath is synchronous.
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
